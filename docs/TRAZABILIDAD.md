@@ -17,8 +17,11 @@ Este documento registra paso a paso cómo se construyó el repositorio con **Git
 | [#6](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/6) | release (back-merge) | `release/1.0.0` → `develop` | `4be1f08` | ✅ |
 | [#7](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/7) | hotfix | `hotfix/eliminar-producto-inexistente` → `main` | `0be83e0` → tag **v1.0.1** | ✅ |
 | [#8](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/8) | hotfix (back-merge) | `hotfix/eliminar-producto-inexistente` → `develop` | `ff3768a` | ✅ |
+| [#9](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/9) | feature (docs) | `feature/documentar-trazabilidad` → `develop` | — | ✅ |
+| [#10](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/10) | release | `release/1.0.2` → `main` | tag **v1.0.2** | ✅ |
+| [#11](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/11) | release (back-merge) | `release/1.0.2` → `develop` | — | ✅ |
 
-**Tags y releases:** [v1.0.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.0) · [v1.0.1](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.1)
+**Tags y releases:** [v1.0.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.0) · [v1.0.1](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.1) · [v1.0.2](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.2)
 
 **Imagen publicada:** `ghcr.io/benjaminstavrakopulos/productos-service` (etiquetas `1.0.0`, `1.0.1`, `latest`, `sha-*`)
 
@@ -188,6 +191,10 @@ gh pr merge 8 --merge
 | `12854d9` | chore(release): actualizar versión a 1.0.1 |
 
 El hotfix llegó a producción **sin arrastrar trabajo pendiente de `develop`**, y gracias al back-merge (#8) la corrección no se pierde en la próxima release.
+
+## Etapa 7: Documentación de trazabilidad y release 1.0.2 (PR #9, #10 y #11)
+
+Este mismo documento se integró siguiendo el flujo: `feature/documentar-trazabilidad` → `develop` (#9), luego `release/1.0.2` → `main` (#10, tag `v1.0.2`) y el back-merge `release/1.0.2` → `develop` (#11). Como solo cambia documentación, se publicó como versión PATCH.
 
 ## Historial resultante
 
