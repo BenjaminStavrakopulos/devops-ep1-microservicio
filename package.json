@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "lint": "eslint .",
+    "test:coverage": "node --test --experimental-test-coverage"
   },
   "engines": {
     "node": ">=22"
@@ -15,5 +17,10 @@
   "license": "MIT",
   "dependencies": {
     "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^17.13.0"
   }
 }
