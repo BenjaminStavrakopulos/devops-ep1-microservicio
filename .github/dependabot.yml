@@ -19,6 +19,10 @@ updates:
       prefix: build
       include: scope
     groups:
+      # eslint y @eslint/js dependen entre sí (peer dependency): se actualizan juntos, incluso en versiones mayores
+      eslint:
+        patterns: ["eslint", "@eslint/*"]
+        update-types: [major, minor, patch]
       produccion-menores:
         dependency-type: production
         update-types: [minor, patch]
