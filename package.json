@@ -1,6 +1,6 @@
 {
   "name": "productos-service",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Microservicio REST para la gestión de un catálogo de productos",
   "main": "src/server.js",
   "private": true,
