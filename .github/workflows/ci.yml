@@ -35,7 +35,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Verificar Conventional Commits
@@ -67,8 +67,8 @@ jobs:
       matrix:
         node: [22, 24]
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -95,7 +95,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Guardar reportes de cobertura y JUnit
         if: always() && matrix.node == 22
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: reportes-pruebas
           path: coverage/
@@ -105,7 +105,7 @@ jobs:
     name: Escaneo de secretos (gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # se revisa todo el historial, no solo el último commit
       - name: Buscar credenciales filtradas en el historial
@@ -118,18 +118,18 @@ jobs:
     needs: lint-y-tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # historial completo para detectar código nuevo y autoría de los hallazgos
       - name: Descargar reporte de cobertura
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: reportes-pruebas
           path: coverage
       # Análisis estático (bugs, vulnerabilidades, security hotspots, code smells, duplicación, cobertura).
       # Bloqueo: falla si el proyecto no aprueba el Quality Gate (sonar.qualitygate.wait=true)
       - name: Análisis y Quality Gate
-        uses: SonarSource/sonarqube-scan-action@v8.2.2
+        uses: SonarSource/sonarqube-scan-action@v8.3.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       - name: Enlace al reporte
@@ -142,8 +142,8 @@ jobs:
     name: Auditoría de dependencias (npm audit)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -162,9 +162,9 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       # Bloquea el PR si agrega dependencias con vulnerabilidades altas
-      - uses: actions/dependency-review-action@v4
+      - uses: actions/dependency-review-action@v5
         with:
           fail-on-severity: high
           comment-summary-in-pr: on-failure
@@ -173,7 +173,7 @@ jobs:
     name: Validación de manifiestos e IaC
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Instalar kustomize y kubeconform
         run: bash scripts/instalar-herramientas-k8s.sh
       - name: Renderizar overlays de Kubernetes
@@ -201,7 +201,7 @@ jobs:
     env:
       TRIVY: aquasec/trivy:0.74.0
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Construir imagen con metadatos de trazabilidad
         run: |
           docker build \
@@ -240,7 +240,7 @@ jobs:
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/" -v "$PWD:/out" $TRIVY \
             image --format cyclonedx --output /out/sbom.cdx.json $IMAGE_NAME:${{ github.sha }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sbom-imagen
           path: sbom.cdx.json
@@ -258,7 +258,7 @@ jobs:
         run: docker logs smoke
       - name: Exportar imagen
         run: docker save $IMAGE_NAME:${{ github.sha }} | gzip > imagen.tar.gz
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: imagen-docker
           path: imagen.tar.gz
@@ -272,8 +272,8 @@ jobs:
     env:
       IMAGE: productos-service:${{ github.sha }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: imagen-docker
       - name: Cargar imagen construida
@@ -304,14 +304,14 @@ jobs:
       IMAGE: productos-service:${{ github.sha }}
       OVERLAY: staging
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: imagen-docker
       - name: Cargar imagen construida
         run: gunzip -c imagen.tar.gz | docker load
       - name: Crear clúster Kubernetes (kind, 3 nodos)
-        uses: helm/kind-action@v1.15.0
+        uses: helm/kind-action@v1.15.1
         with:
           cluster_name: productos
           config: k8s/kind-config.yaml
@@ -346,7 +346,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Guardar manifiesto aplicado
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: manifiesto-staging
           path: manifiesto-staging.yaml
@@ -369,14 +369,14 @@ jobs:
     outputs:
       imagen: ${{ steps.publicar.outputs.digest }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: imagen-docker
       # Build once, deploy many: se publica exactamente la imagen que pasó las pruebas, sin reconstruirla
       - name: Cargar imagen probada
         run: gunzip -c imagen.tar.gz | docker load
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -416,9 +416,9 @@ jobs:
       IMAGE: ${{ needs.publicar-imagen.outputs.imagen }}
       OVERLAY: production
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Crear clúster Kubernetes (kind, 3 nodos)
-        uses: helm/kind-action@v1.15.0
+        uses: helm/kind-action@v1.15.1
         with:
           cluster_name: productos
           config: k8s/kind-config.yaml
@@ -451,7 +451,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Guardar manifiesto aplicado
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: manifiesto-production
           path: manifiesto-production.yaml
