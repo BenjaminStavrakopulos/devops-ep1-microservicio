@@ -70,8 +70,30 @@ jobs:
         run: npm ci
       - name: Lint
         run: npm run lint
-      - name: Tests con cobertura
-        run: npm run test:coverage
+      # Política de calidad: falla si la cobertura baja de 90% líneas / 85% ramas / 90% funciones
+      - name: Tests unitarios e integración con umbral de cobertura
+        shell: bash   # activa pipefail para que "tee" no oculte un fallo de las pruebas
+        run: npm run test:ci 2>&1 | tee test-output.txt
+      - name: Resumen de pruebas
+        if: always()
+        run: |
+          {
+            echo "## Pruebas (Node ${{ matrix.node }})"
+            echo '```'
+            grep -E '^ℹ (tests|suites|pass|fail|cancelled|skipped|duration_ms)' test-output.txt || true
+            echo '```'
+            echo "### Cobertura"
+            echo '```'
+            sed -n '/start of coverage report/,/end of coverage report/p' test-output.txt | sed 's/^ℹ //' || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Guardar reportes de cobertura y JUnit
+        if: always() && matrix.node == 22
+        uses: actions/upload-artifact@v4
+        with:
+          name: reportes-pruebas
+          path: coverage/
+          retention-days: 7
 
   escaneo-secretos:
     name: Escaneo de secretos (gitleaks)
