@@ -23,8 +23,17 @@ Este documento registra paso a paso cómo se construyó el repositorio con **Git
 | [#12](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/12) | feature | `feature/escaneo-secretos` → `develop` | — | ✅ |
 | [#13](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/13) | release | `release/1.1.0` → `main` | tag **v1.1.0** | ✅ |
 | [#14](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/14) | release (back-merge) | `release/1.1.0` → `develop` | — | ✅ |
+| [#15](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/15) | feature | `feature/pruebas-unitarias-cobertura` → `develop` | — | ✅ |
+| [#16](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/16) | feature | `feature/persistencia-postgres` → `develop` | — | ✅ |
+| [#17](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/17) | feature | `feature/orquestacion-compose` → `develop` | — | ✅ (1 fallo corregido en la rama) |
+| [#18](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/18) | feature | `feature/seguridad-dependencias` → `develop` | — | ✅ |
+| [#19](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/19) | feature (prueba) | `feature/prueba-bloqueo-seguridad` → `develop` | **cerrado sin merge** | ❌ bloqueado a propósito |
+| [#20](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/20) | feature | `feature/orquestacion-kubernetes` → `develop` | — | ✅ |
+| [#21](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/21) | feature | `feature/analisis-sonarcloud` → `develop` | — | ✅ |
+| [#22](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/22) | feature (docs) | `feature/documentacion-pipeline-ep2` → `develop` | — | ✅ |
+| [#23](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/23) | release | `release/1.2.0` → `main` | tag **v1.2.0** | ✅ |
 
-**Tags y releases:** [v1.0.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.0) · [v1.0.1](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.1) · [v1.0.2](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.2) · [v1.1.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.1.0)
+**Tags y releases:** [v1.0.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.0) · [v1.0.1](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.1) · [v1.0.2](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.2) · [v1.1.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.1.0) · [v1.2.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.2.0)
 
 **Imagen publicada:** `ghcr.io/benjaminstavrakopulos/productos-service` (etiquetas `1.0.0`, `1.0.1`, `latest`, `sha-*`)
 
@@ -217,6 +226,35 @@ gh pr merge 12 --merge
 ```
 
 Como agrega funcionalidad nueva al pipeline, se publicó como versión **MINOR**: `release/1.1.0` → `main` (#13, tag `v1.1.0`) y back-merge hacia `develop` (#14).
+
+## Etapa 9: Evaluación Parcial 2 (PR #15 a #23)
+
+Se siguió el mismo flujo GitFlow, con una rama `feature/*` por cada área del encargo:
+
+| Rama | Indicador | Contenido |
+|------|-----------|-----------|
+| `feature/pruebas-unitarias-cobertura` | IE2 | Pruebas unitarias y umbral de cobertura obligatorio |
+| `feature/persistencia-postgres` | IE5 | PostgreSQL para que las réplicas no tengan estado propio, readiness y apagado ordenado |
+| `feature/orquestacion-compose` | IE1 / IE5 | Dockerfile optimizado y stack Docker Compose con balanceador |
+| `feature/seguridad-dependencias` | IE3 | Dependabot, npm audit, Dependency Review, Trivy, SBOM y alertas |
+| `feature/prueba-bloqueo-seguridad` | IE3 | PR con dependencia vulnerable para demostrar el bloqueo (cerrado sin merge) |
+| `feature/orquestacion-kubernetes` | IE4 / IE5 | Kubernetes, deploy automático, rollback y pruebas de orquestación |
+| `feature/analisis-sonarcloud` | IE3 | SonarCloud con Quality Gate bloqueante |
+| `feature/documentacion-pipeline-ep2` | IE4 | Documentación del pipeline, la calidad y la trazabilidad |
+
+Dos problemas detectados por el propio pipeline y corregidos antes del merge:
+
+- **PR #17**: la prueba e2e falló porque el healthcheck del balanceador usaba `localhost`, que resolvía a IPv6 (`::1`) mientras Nginx escuchaba solo en IPv4. Se corrigió con el commit `fix(orquestacion): usar IPv4 en el healthcheck del balanceador`.
+- **PR #18**: Trivy 0.58.1 no reconocía Alpine 3.24 y podía omitir vulnerabilidades. Se actualizó a 0.74.0.
+
+Comandos usados en esta etapa además de los anteriores:
+
+```bash
+gh workflow run ci.yml --ref feature/orquestacion-kubernetes -f desplegar_staging=true   # probar el deploy a K8s antes del PR
+gh pr close 19 --comment "..."                                                            # cerrar el PR de prueba sin mergear
+gh api -X POST repos/<owner>/<repo>/branches/main/protection/required_status_checks/contexts   # agregar checks obligatorios
+gh secret set SONAR_TOKEN                                                                 # credencial de SonarCloud
+```
 
 ## Historial resultante
 
