@@ -6,9 +6,9 @@ set -euo pipefail
 BASE_URL="${1:-http://localhost:3000}"
 FALLOS=0
 
-echo "Esperando a que el servicio responda en ${BASE_URL} ..."
-for _ in $(seq 1 30); do
-  if curl -fs "${BASE_URL}/health" > /dev/null; then break; fi
+echo "Esperando a que el servicio esté listo en ${BASE_URL} ..."
+for _ in $(seq 1 60); do
+  if curl -fs "${BASE_URL}/ready" > /dev/null; then break; fi
   sleep 1
 done
 
@@ -28,14 +28,41 @@ verificar() {
   fi
 }
 
+echo "Información del despliegue:"
+echo "  $(curl -s "${BASE_URL}/health")"
+
 echo "Ejecutando pruebas de humo:"
-verificar "Health check"             200 GET  /health
-verificar "Listar productos"         200 GET  /api/productos
-verificar "Obtener producto"         200 GET  /api/productos/1
-verificar "Producto inexistente"     404 GET  /api/productos/999
-verificar "Crear producto"           201 POST /api/productos '{"nombre":"Smoke","precio":1,"stock":1}'
-verificar "Rechazar producto inválido" 400 POST /api/productos '{"nombre":""}'
-verificar "Eliminar inexistente"     404 DELETE /api/productos/999
+verificar "Liveness"                   200 GET    /health
+verificar "Readiness"                  200 GET    /ready
+verificar "Listar productos"           200 GET    /api/productos
+verificar "Filtrar productos"          200 GET    "/api/productos?categoria=perifericos&ordenar=-precio"
+verificar "Obtener producto"           200 GET    /api/productos/1
+verificar "Producto inexistente"       404 GET    /api/productos/999
+verificar "Rechazar producto inválido" 400 POST   /api/productos '{"nombre":""}'
+verificar "Eliminar inexistente"       404 DELETE /api/productos/999
+
+# Consistencia entre réplicas: lo que se crea en una réplica debe verse desde todas
+ID=$(curl -s -X POST -H 'Content-Type: application/json' \
+  -d '{"nombre":"Smoke test","precio":1,"stock":1}' "${BASE_URL}/api/productos" | sed -nE 's/.*"id":([0-9]+).*/\1/p')
+if [[ -z "$ID" ]]; then
+  echo "  FALLO Crear producto (no se obtuvo id)"
+  FALLOS=$((FALLOS + 1))
+else
+  echo "  OK    Crear producto (id ${ID})"
+  for i in $(seq 1 6); do
+    verificar "Leer producto creado (petición ${i})" 200 GET "/api/productos/${ID}"
+  done
+  verificar "Eliminar producto creado"   204 DELETE "/api/productos/${ID}"
+fi
+
+# Balanceo de carga (informativo): cuántas réplicas distintas respondieron
+REPLICAS=$(for _ in $(seq 1 15); do
+  curl -s -D - -o /dev/null "${BASE_URL}/health" | tr -d '\r' | sed -n 's/^[Xx]-[Uu]pstream: //p'
+done | sort -u)
+if [[ -n "$REPLICAS" ]]; then
+  echo "Réplicas que respondieron en 15 peticiones: $(echo "$REPLICAS" | wc -l)"
+  echo "$REPLICAS" | sed 's/^/  - /'
+fi
 
 if [[ $FALLOS -gt 0 ]]; then
   echo "Pruebas de humo fallidas: ${FALLOS}"
