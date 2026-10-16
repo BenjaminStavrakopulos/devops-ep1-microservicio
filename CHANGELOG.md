@@ -4,6 +4,12 @@ Todos los cambios relevantes de este proyecto se documentan en este archivo.
 
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
+## [1.2.1] - 2026-10-16
+
+### Mantenimiento
+- `eslint` y `@eslint/js` actualizados a la versión 10, juntos por ser peer dependencies (#28). Reemplaza los PRs de Dependabot #24 y #25, que fallaban por separado.
+- Grupo `eslint` en Dependabot para proponer ambos paquetes en un solo PR (#28).
+
 ## [1.2.0] - 2026-10-16
 
 ### Agregado
@@ -53,6 +59,7 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/
 ### Agregado
 - Versión inicial del microservicio: `GET /health`, `GET /api/productos`, `GET /api/productos/:id` y `POST /api/productos`.
 
+[1.2.1]: https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/compare/v1.0.1...v1.0.2
