@@ -1,6 +1,6 @@
 {
   "name": "productos-service",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Microservicio REST para la gestión de un catálogo de productos",
   "main": "src/server.js",
   "private": true,
@@ -25,8 +25,8 @@
     "pg": "^8.23.1"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.5",
-    "eslint": "^9.39.5",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.12.0",
     "globals": "^17.13.0",
     "pg-mem": "^3.0.14"
   }
