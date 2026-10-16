@@ -238,7 +238,24 @@ El registro paso a paso del flujo de trabajo está en [docs/TRAZABILIDAD.md](doc
 
 ## Evidencias
 
-> Esta sección se completa con los enlaces de la release que integra la EP2.
+Evidencias de la release [v1.2.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.2.0), que integra la EP2:
+
+| Qué se demuestra | Evidencia |
+|------------------|-----------|
+| Pipeline completo en un PR (12 checks en verde) | [PR #22](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/22) |
+| **Bloqueo** por dependencia vulnerable | [PR #19](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/19): auditoría y revisión de dependencias en rojo, sin build ni despliegue, PR **BLOCKED** |
+| Calidad del código | [SonarCloud](https://sonarcloud.io/summary/overall?id=BenjaminStavrakopulos_devops-ep1-microservicio): Quality Gate aprobado, 0 bugs, 0 vulnerabilidades, 0 code smells, 0% de duplicación |
+| Orquestación con Docker Compose y escalado | [PR #17](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/17), job *Prueba e2e*: las peticiones se repartieron entre **3 réplicas** y luego entre **5** después de escalar |
+| Deploy automático a staging en Kubernetes | [Ejecución 38843626839](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/actions/runs/38843626839) (push a `develop`) |
+| Balanceo entre pods | Misma ejecución: 40 peticiones repartidas **18 / 22** entre los 2 pods |
+| Rolling update sin caída | Misma ejecución: **7.326 peticiones exitosas, 0 fallidas** mientras se reiniciaban todos los pods |
+| Autoescalado (HPA) | Misma ejecución: con la CPU al 135%/70%, el HPA escaló de **2 a 4 réplicas** (máximo de staging) en 45 s |
+| Publicación en GHCR y deploy a production | [Ejecuciones en `main`](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/actions/workflows/ci.yml?query=branch%3Amain) después del merge de la release |
+| Historial de despliegues | [Deployments](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/deployments) (`staging` y `production`) |
+| Alertas de seguridad | Pestaña [Security](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/security) (Dependabot, code scanning de Trivy, secret scanning) |
+| Versionado | [Releases](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases) y [CHANGELOG](CHANGELOG.md) |
+
+Cada ejecución del pipeline publica en su *Job Summary* el resultado de las pruebas, la cobertura, los datos de la imagen y el estado del clúster.
 
 ## Decisiones técnicas
 
@@ -370,6 +387,7 @@ El proyecto usa **Versionado Semántico** (`MAJOR.MINOR.PATCH`). Cada integraci�
 | [v1.0.1](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.1) | PATCH | `hotfix/eliminar-producto-inexistente` ([#7](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/7)) | Corrección: `DELETE` de un id inexistente borraba el último producto |
 | [v1.0.2](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.2) | PATCH | `release/1.0.2` ([#10](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/10)) | Documentación de trazabilidad |
 | [v1.1.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.1.0) | MINOR | `release/1.1.0` ([#13](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/13)) | Escaneo de secretos en el pipeline y documentación de credenciales |
+| [v1.2.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.2.0) | MINOR | `release/1.2.0` ([#23](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/23)) | **EP2**: PostgreSQL, pruebas con umbral de cobertura, seguridad en el pipeline, Docker Compose y Kubernetes |
 
 ```bash
 git tag -l -n1                     # tags con su mensaje

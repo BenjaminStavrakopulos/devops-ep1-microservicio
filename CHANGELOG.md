@@ -4,6 +4,22 @@ Todos los cambios relevantes de este proyecto se documentan en este archivo.
 
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
+## [1.2.0] - 2026-10-16
+
+### Agregado
+- Persistencia en PostgreSQL seleccionable por `DATABASE_URL`, con inicialización segura entre réplicas (advisory lock) y restricciones en la base de datos (#16).
+- Endpoint `/ready` (readiness), apagado ordenado ante `SIGTERM`, reintentos de conexión con espera exponencial, cabeceras de seguridad (helmet) y límite de 10 KB por petición (#16, #20).
+- `/health` informa commit, instancia y tipo de almacenamiento (#16, #20).
+- Pruebas unitarias separadas de las de integración y umbral de cobertura obligatorio (90/85/90) (#15).
+- Dockerfile optimizado: labels OCI, caché de BuildKit, sin npm/yarn en la imagen final (#17).
+- Orquestación con Docker Compose: Nginx + API x3 + PostgreSQL, con prueba e2e en cada PR (#17).
+- Orquestación con Kubernetes (Kustomize): Deployment, HPA, PDB, StatefulSet, NetworkPolicy y Pod Security *restricted*; deploy automático a staging y production con rollback (#20).
+- Seguridad en el pipeline: Dependabot, `npm audit`, Dependency Review, Trivy (imagen e IaC), SBOM, kubeconform y alertas por issue (#18, #20).
+- Análisis de código con SonarCloud y Quality Gate bloqueante (#21).
+
+### Documentación
+- README con el pipeline, la calidad y la trazabilidad; `docs/ORQUESTACION.md`; `docs/CI-CD.md` y guía actualizados (#22).
+
 ## [1.1.0] - 2026-10-15
 
 ### Agregado
@@ -37,6 +53,7 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/
 ### Agregado
 - Versión inicial del microservicio: `GET /health`, `GET /api/productos`, `GET /api/productos/:id` y `POST /api/productos`.
 
+[1.2.0]: https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/compare/v1.0.0...v1.0.1
