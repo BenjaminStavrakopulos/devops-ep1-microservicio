@@ -109,4 +109,11 @@ describe('DELETE /api/productos/:id', () => {
     const consulta = await fetch(`${srv.baseUrl}/api/productos/3`);
     assert.equal(consulta.status, 404);
   });
+
+  test('responde 404 y no elimina nada si el producto no existe', async () => {
+    const res = await fetch(`${srv.baseUrl}/api/productos/999`, { method: 'DELETE' });
+    assert.equal(res.status, 404);
+    const listado = await (await fetch(`${srv.baseUrl}/api/productos`)).json();
+    assert.deepEqual(listado.map((p) => p.id), [1, 2, 3]);
+  });
 });

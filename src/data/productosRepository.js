@@ -36,6 +36,8 @@ function actualizar(id, datos) {
 
 function eliminar(id) {
   const indice = productos.findIndex((p) => p.id === id);
+  // splice(-1, 1) eliminaría el último elemento, por eso se valida que exista
+  if (indice === -1) return undefined;
   const [eliminado] = productos.splice(indice, 1);
   return eliminado;
 }

@@ -35,6 +35,7 @@ verificar "Obtener producto"         200 GET  /api/productos/1
 verificar "Producto inexistente"     404 GET  /api/productos/999
 verificar "Crear producto"           201 POST /api/productos '{"nombre":"Smoke","precio":1,"stock":1}'
 verificar "Rechazar producto inválido" 400 POST /api/productos '{"nombre":""}'
+verificar "Eliminar inexistente"     404 DELETE /api/productos/999
 
 if [[ $FALLOS -gt 0 ]]; then
   echo "Pruebas de humo fallidas: ${FALLOS}"
