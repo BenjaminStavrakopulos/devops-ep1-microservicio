@@ -41,9 +41,20 @@ docker compose down
 
 ## API
 
+El servicio usa **PostgreSQL** cuando se define la variable `DATABASE_URL` (Docker Compose, Kubernetes) y un **repositorio en memoria** cuando no (desarrollo local y pruebas). Con PostgreSQL todas las réplicas comparten el mismo estado, lo que permite escalar horizontalmente.
+
+| Variable | Por defecto | Descripción |
+|----------|-------------|-------------|
+| `PORT` | `3000` | Puerto HTTP |
+| `DATABASE_URL` | *(vacía → memoria)* | Cadena de conexión a PostgreSQL |
+| `DB_POOL_MAX` | `10` | Conexiones máximas por réplica |
+| `SHUTDOWN_TIMEOUT_MS` | `10000` | Tiempo máximo del apagado ordenado |
+| `GIT_SHA` | `local` | Commit desplegado (lo inyecta el pipeline en la imagen) |
+
 | Método | Ruta                  | Descripción                     |
 |--------|-----------------------|---------------------------------|
-| GET    | `/health`             | Estado y versión del servicio   |
+| GET    | `/health`             | *Liveness*: estado, versión, commit y tipo de almacenamiento |
+| GET    | `/ready`              | *Readiness*: `200` si puede recibir tráfico, `503` si la base de datos no responde o se está apagando |
 | GET    | `/api/productos`      | Lista productos (con filtros)   |
 | GET    | `/api/productos/:id`  | Obtiene un producto por id      |
 | POST   | `/api/productos`      | Crea un producto                |
