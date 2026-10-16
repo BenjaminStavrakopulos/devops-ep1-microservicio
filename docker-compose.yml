@@ -71,7 +71,7 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/nginx-health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/nginx-health"]
       interval: 5s
       timeout: 3s
       retries: 5
