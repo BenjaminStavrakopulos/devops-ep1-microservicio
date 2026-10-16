@@ -20,8 +20,11 @@ Este documento registra paso a paso cómo se construyó el repositorio con **Git
 | [#9](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/9) | feature (docs) | `feature/documentar-trazabilidad` → `develop` | — | ✅ |
 | [#10](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/10) | release | `release/1.0.2` → `main` | tag **v1.0.2** | ✅ |
 | [#11](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/11) | release (back-merge) | `release/1.0.2` → `develop` | — | ✅ |
+| [#12](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/12) | feature | `feature/escaneo-secretos` → `develop` | — | ✅ |
+| [#13](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/13) | release | `release/1.1.0` → `main` | tag **v1.1.0** | ✅ |
+| [#14](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/14) | release (back-merge) | `release/1.1.0` → `develop` | — | ✅ |
 
-**Tags y releases:** [v1.0.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.0) · [v1.0.1](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.1) · [v1.0.2](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.2)
+**Tags y releases:** [v1.0.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.0) · [v1.0.1](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.1) · [v1.0.2](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.2) · [v1.1.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.1.0)
 
 **Imagen publicada:** `ghcr.io/benjaminstavrakopulos/productos-service` (etiquetas `1.0.0`, `1.0.1`, `latest`, `sha-*`)
 
@@ -195,6 +198,25 @@ El hotfix llegó a producción **sin arrastrar trabajo pendiente de `develop`**,
 ## Etapa 7: Documentación de trazabilidad y release 1.0.2 (PR #9, #10 y #11)
 
 Este mismo documento se integró siguiendo el flujo: `feature/documentar-trazabilidad` → `develop` (#9), luego `release/1.0.2` → `main` (#10, tag `v1.0.2`) y el back-merge `release/1.0.2` → `develop` (#11). Como solo cambia documentación, se publicó como versión PATCH.
+
+## Etapa 8: Feature `feature/escaneo-secretos` y release 1.1.0 (PR #12, #13 y #14)
+
+Se agregó un job de escaneo de secretos con gitleaks. Antes de abrir el PR se probó en la misma rama con una ejecución manual del workflow:
+
+```bash
+git switch develop && git pull
+git switch -c feature/escaneo-secretos
+git commit -m "ci: agregar escaneo de secretos con gitleaks al pipeline"
+git push -u origin feature/escaneo-secretos
+gh workflow run ci.yml --ref feature/escaneo-secretos    # prueba manual: 27 commits revisados, sin hallazgos
+git commit -m "docs(ci): documentar escaneo de secretos y manejo de credenciales"
+git commit -m "docs(readme): agregar sección de versiones, releases y manejo de credenciales"
+git push
+gh pr create --base develop ...                          # PR #12
+gh pr merge 12 --merge
+```
+
+Como agrega funcionalidad nueva al pipeline, se publicó como versión **MINOR**: `release/1.1.0` → `main` (#13, tag `v1.1.0`) y back-merge hacia `develop` (#14).
 
 ## Historial resultante
 
