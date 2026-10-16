@@ -6,7 +6,7 @@
 
 Microservicio REST para la gestión de un catálogo de productos (**Node.js + Express + PostgreSQL**), contenerizado con **Docker**, orquestado con **Kubernetes** y **Docker Compose**, y con un pipeline **CI/CD en GitHub Actions** que automatiza todo su ciclo de vida: pruebas, análisis de seguridad, construcción de la imagen y despliegue.
 
-> **Ingeniería DevOps (DOY0101)** – Trabajo realizado de forma **individual** por Benjamín Stavrakopulos.
+> **Ingeniería DevOps (DOY0101)** – Trabajo realizado en **pareja** por Bastián Lazo y Benjamín Stavrakopulos.
 > - **EP1** *Tu primer pipeline de despliegue*: estrategia de ramificación, convenciones y primer pipeline ([ver sección](#evaluación-parcial-1-control-de-versiones-y-colaboración)).
 > - **EP2** *Añadiéndole complejidad a nuestro pipeline*: contenedores, pruebas, seguridad, despliegue automático y orquestación (secciones siguientes).
 
@@ -117,6 +117,8 @@ Además, **Dependabot** revisa cada semana las dependencias npm, las GitHub Acti
 
 Detalle de cada etapa y su rol en CI/CD: [docs/CI-CD.md](docs/CI-CD.md).
 
+**Sobre las ejecuciones canceladas y fallidas:** las ejecuciones marcadas como *cancelled* corresponden a la política de `concurrency` (un push nuevo cancela la ejecución anterior de la misma rama). Las ejecuciones *failed* de Dependabot (PRs #24, #25, #26) son esperadas: el bump a ESLint 10 rompía la configuración del proyecto y bloqueaba el merge. Fue resuelto manualmente en el PR #28 (`feature/actualizar-eslint-10`) y agrupado en Dependabot para evitar PRs individuales que rompan el pipeline.
+
 ### Flujo por rama y entorno
 
 | Evento | Entorno | Qué se despliega |
@@ -140,6 +142,7 @@ Los clústeres son **kind** (Kubernetes en Docker) creados dentro del runner de 
 | `HEALTHCHECK`, `STOPSIGNAL SIGTERM` y apagado ordenado en la app | El runtime sabe si el contenedor está sano y lo detiene sin cortar peticiones |
 | Labels OCI `version`, `revision` (commit), `created`, `source` | Trazabilidad: cada imagen indica de qué commit viene |
 | `.dockerignore` estricto | Contexto de build mínimo; tests, docs y `.env` no entran a la imagen |
+| Imagen final liviana sobre `node:22-alpine` | Menos peso y menos superficie de ataque |
 
 En ejecución, los contenedores corren con **sistema de archivos de solo lectura**, sin *capabilities* de Linux (`drop: ALL`), sin escalada de privilegios, con perfil *seccomp* y con **límites de CPU y memoria**, tanto en Compose como en Kubernetes.
 
@@ -182,6 +185,8 @@ Manifiestos en [`k8s/`](k8s) con **Kustomize** (`base/` + `overlays/staging` y `
 | Cualquier fallo en `develop`/`main` | Job *Alerta de seguridad* | Issue `seguridad` |
 
 La prueba de que los bloqueos funcionan está en el [PR #19](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/19): agregaba `lodash@4.17.20` (CVE-2021-23337, severidad alta), la auditoría y la revisión de dependencias fallaron, no se construyó ni desplegó la imagen y el PR quedó **BLOCKED**. Política completa en [SECURITY.md](SECURITY.md).
+
+**Hallazgo LOW aceptado:** Trivy reporta que la imagen oficial de PostgreSQL usa el UID 70. Es un requisito de esa imagen y está mitigado por el resto de controles (`readOnlyRootFilesystem`, `cap_drop: ALL`, seccomp, NetworkPolicy y Pod Security `restricted`). Documentado como excepción consciente.
 
 **Parámetros de escalabilidad y desempeño:**
 
@@ -254,21 +259,51 @@ Evidencias de la release [v1.2.0](https://github.com/BenjaminStavrakopulos/devop
 | Historial de despliegues | [Deployments](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/deployments) (`staging` y `production`) |
 | Alertas de seguridad | Pestaña [Security](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/security) (Dependabot, code scanning de Trivy, secret scanning) |
 | Versionado | [Releases](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases) y [CHANGELOG](CHANGELOG.md) |
+| Protección de ramas en acción | Intento de push directo a `main` rechazado con `GH006: Protected branch update failed`, exigiendo PR y los 9 checks obligatorios |
 
 Cada ejecución del pipeline publica en su *Job Summary* el resultado de las pruebas, la cobertura, los datos de la imagen y el estado del clúster.
 
 ## Decisiones técnicas
 
-> ✍️ **Sección pendiente: la redacta el estudiante.** La pauta prohíbe usar IA para las justificaciones técnicas.
->
-> Preguntas guía:
-> - ¿Por qué **Kubernetes** para staging y production, y **Docker Compose** para local y PRs? ¿Qué aporta cada uno?
-> - ¿Por qué **SonarCloud** y no Snyk? ¿Qué cubre cada herramienta de seguridad (SonarCloud, Trivy, npm audit, Dependabot, gitleaks) que las otras no?
-> - ¿Por qué **bloquear** en severidad *high* y no en *medium*? ¿Qué riesgo aceptas?
-> - ¿Por qué fue necesario agregar **PostgreSQL** para poder escalar? ¿Qué pasaría con varias réplicas y datos en memoria?
-> - ¿Por qué esos valores de **HPA** (objetivo 70%, mínimos y máximos) y de **requests/limits**?
-> - ¿Por qué un **umbral de cobertura** de 90/85/90?
-> - ¿Por qué publicar en GHCR **la misma imagen probada** y desplegar por **digest**?
+### ¿Por qué Kubernetes para staging/producción y Docker Compose para local y PRs?
+
+Docker Compose nos da un entorno reproducible en segundos y sin necesidad de un clúster. Es ideal para el desarrollo local y para la prueba que corre en cada PR: levanta Nginx + API ×3 + PostgreSQL, y permite escalar con `--scale` sin instalar nada extra. Kubernetes es el estándar en producción: nos aporta HPA, rolling updates con `maxUnavailable: 0`, PodDisruptionBudget, NetworkPolicy, Pod Security Standards y probes diferenciadas (startup/liveness/readiness). Usamos cada uno donde tiene sentido: Compose para velocidad, Kubernetes para robustez y gobernanza.
+
+### ¿Por qué SonarCloud y no Snyk?
+
+SonarCloud cubre bugs, vulnerabilidades, *security hotspots*, *code smells*, duplicación y cobertura con Quality Gate bloqueante. Snyk se enfoca principalmente en dependencias. Como ya cubrimos dependencias con `npm audit`, Dependency Review, Dependabot y Trivy (imagen + IaC), SonarCloud aporta la capa que ninguna otra herramienta cubre: análisis estático del código propio. Cada herramienta cubre un eslabón distinto de la cadena.
+
+### ¿Por qué bloquear en severidad *high* y no *medium*?
+
+Bloquear en *medium* genera demasiados falsos positivos y fatiga de alertas; en la práctica, eso empuja al equipo a desactivar los bloqueos. Aceptamos el riesgo residual de *medium* porque: (1) las dependencias se actualizan semanalmente con Dependabot, (2) Trivy y SonarCloud siguen reportando esos hallazgos en la pestaña Security aunque no bloqueen, y (3) el equipo revisa los issues de seguridad abiertos periódicamente. La política está declarada en `SECURITY.md`.
+
+### ¿Por qué PostgreSQL y no mantener el estado en memoria?
+
+Con varias réplicas de la API, un estado en memoria se duplica y se desincroniza: lo que se crea en una réplica no lo ve otra. PostgreSQL centraliza el estado y permite que todas las réplicas lean y escriban la misma fuente. El repositorio en memoria queda como *fallback* para desarrollo y pruebas, y se elige con la variable `DATABASE_URL`.
+
+### ¿Por qué esos valores de HPA y requests/limits?
+
+El HPA apunta al 70% de CPU sobre `requests.cpu`: por debajo de ese umbral el sistema tiene margen antes de degradarse, y por encima escala rápido. En staging usamos 2–4 réplicas (bajo costo) y en producción 3–8 (carga real). La subida es agresiva (+2 pods cada 15s) y la bajada tiene una ventana de estabilización de 120s para evitar oscilaciones por picos momentáneos. Los `requests` permiten que el scheduler ubique pods según la capacidad real de los nodos; los `limits` evitan que un pod afecte a sus vecinos.
+
+### ¿Por qué umbral de cobertura 90/85/90?
+
+100% de cobertura es irreal y empuja a escribir tests triviales solo para cumplir la métrica. Con 90% de líneas, 85% de ramas y 90% de funciones cubrimos rutas críticas, casos límite y ramas de error sin volvernos dogmáticos. La cobertura real del proyecto está cerca del 98.8% de líneas, así que el umbral no ahoga al equipo, pero sí bloquea regresiones.
+
+### ¿Por qué publicar la MISMA imagen probada y desplegar por digest?
+
+"Build once, deploy many": reconstruir la imagen en cada entorno introduce diferencias no verificadas. Publicamos exactamente la imagen que ya pasó pruebas, Trivy y smoke test. Desplegamos por digest (`@sha256:...`) en lugar de por tag porque el digest es inmutable: un tag como `latest` puede cambiar sin aviso, un digest no.
+
+### ¿Por qué `preStop: sleep 5` + `terminationGracePeriodSeconds: 30`?
+
+El `preStop` de 5 segundos da tiempo a que el pod salga de los *endpoints* del Service antes de recibir SIGTERM. Los 30 segundos de gracia cubren peticiones lentas, cierre del pool de conexiones y reintentos. Combinado con la `readinessProbe` que responde 503 durante el apagado, evitamos cortar tráfico durante un rolling update o un escalado hacia abajo.
+
+### ¿Por qué `--ignore-scripts` en `npm ci`?
+
+Ejecutar scripts de instalación de dependencias de terceros abre la puerta a ataques de cadena de suministro: un paquete comprometido puede ejecutar código arbitrario durante el build. `--ignore-scripts` desactiva esa ejecución y ninguna de nuestras dependencias de producción la requiere.
+
+### ¿Por qué `readOnlyRootFilesystem` + `cap_drop: ALL` + `seccomp`?
+
+Defensa en capas: si un atacante compromete el contenedor, no puede escribir en el sistema de archivos, no tiene capabilities de Linux ni puede escalar privilegios, y el perfil seccomp restringe las llamadas al sistema. Lo aplicamos tanto en Docker Compose como en Kubernetes.
 
 ## API
 
@@ -368,14 +403,17 @@ gitGraph
 
 #### Justificación de la elección
 
-> ✍️ **Sección pendiente: la redacta el estudiante.** La pauta de la evaluación prohíbe usar IA para escribir justificaciones técnicas.
->
-> La justificación tiene que **contrastar GitFlow con las alternativas** de la tabla anterior, no solo describirlo. Preguntas guía:
-> - **Frente a GitHub Flow:** ¿qué te aporta tener `develop` + *staging* antes de producción, en vez de desplegar cada PR directo desde `main`?
-> - **Frente a trunk-based:** ¿qué requisitos de trunk-based (feature flags, cobertura de tests, integrar varias veces al día) no se cumplen en este proyecto?
-> - **Frente a GitLab Flow:** ¿por qué ramas por tipo de trabajo y no ramas por entorno?
-> - **Evidencia propia:** ¿cómo te sirvieron `release/*` y el hotfix v1.0.1 (bug corregido en producción sin arrastrar trabajo de `develop`)?
-> - **Límites:** ¿qué costo tiene GitFlow aquí y en qué escenario cambiarías de modelo?
+Elegimos **GitFlow** sobre las otras alternativas por razones concretas de nuestro proyecto:
+
+**Frente a GitHub Flow:** GitHub Flow despliega cada merge a `main` directo a producción. Es atractivo para SaaS con feature flags, pero no da red de seguridad cuando separas staging de producción: un cambio roto llega a prod sin pasar por staging. Con GitFlow, `develop` alimenta staging y `main` alimenta producción, con releases explícitas entre medio.
+
+**Frente a trunk-based development:** trunk-based exige integrar en `main` varias veces al día, ocultar trabajo incompleto con feature flags y tener una CI ultrarrápida. En un trabajo en pareja, con releases semanales y sin feature flags, ese modelo agrega complejidad sin beneficio. La integración continua la cubrimos con 9 checks obligatorios en cada PR.
+
+**Frente a GitLab Flow:** GitLab Flow crea ramas por entorno (`staging`, `production`). Eso amarra la estructura del repositorio a la infraestructura y complica tener dos entornos apuntando a la misma rama de código. Preferimos ramas por tipo de trabajo (`feature/*`, `release/*`, `hotfix/*`), que reflejan el ciclo de vida del cambio y no su destino de despliegue.
+
+**Evidencia propia:** el hotfix v1.0.1 (`DELETE` de un id inexistente borraba el último producto) se corrigió en `hotfix/*`, se mergeó a `main` para producción y luego se hizo back-merge a `develop`. Ese es exactamente el caso de uso que justifica GitFlow: corregir producción sin arrastrar trabajo incompleto de `develop`. Con GitHub Flow, la corrección habría tenido que esperar al siguiente ciclo.
+
+**Límite honesto:** GitFlow tiene un costo: más ramas, más merges, más disciplina. Si el equipo creciera y adoptara feature flags con una CI más rápida, migraríamos a trunk-based. Hoy, para dos personas con releases semanales, GitFlow es lo que mejor nos calza.
 
 ### Control de versiones y releases
 
@@ -423,31 +461,85 @@ Resumen (el detalle está en la [guía de buenas prácticas](docs/GUIA-BUENAS-PR
 
 ## Declaración de uso de Inteligencia Artificial
 
-De acuerdo con las indicaciones de la evaluación y la [guía de citación de IA de Bibliotecas Duoc UC](https://bibliotecas.duoc.cl/ia):
+De acuerdo con las indicaciones de la evaluación y la [guía de citación de IA de Bibliotecas Duoc UC](https://bibliotecas.duoc.cl/ia), declaramos lo siguiente:
 
-| Evaluación | Herramienta | Uso |
-|------------|-------------|-----|
-| EP1 | Claude Code (Anthropic, modelo Claude Opus 5.5), octubre 2026 | Apoyo en la generación del código base del microservicio, la configuración del workflow de GitHub Actions, el Dockerfile y la redacción de la documentación técnica (guía de buenas prácticas, explicación del pipeline y descripción de los modelos de ramificación). |
-| EP2 | Claude Code (Anthropic, modelo Claude Opus 5.5), octubre 2026 | Apoyo en la implementación de la persistencia con PostgreSQL, las pruebas unitarias, la optimización del Dockerfile, los manifiestos de Kubernetes y Docker Compose, la configuración de las etapas de seguridad (Dependabot, SonarCloud, Trivy, alertas) y despliegue del pipeline, y la redacción de la documentación técnica descriptiva (README, CI-CD, ORQUESTACION). |
+### Cómo trabajamos
 
-Todo el contenido generado fue revisado y validado por el autor, y cada cambio se verificó con el pipeline. Las **justificaciones técnicas** (estrategia de ramificación y decisiones técnicas) y las **conclusiones y reflexiones personales** fueron redactadas por el autor sin apoyo de IA.
+El proyecto lo diseñamos, construimos y validamos nosotros. La IA la usamos como **herramienta de apoyo puntual**, principalmente para resolver errores concretos, entender comportamientos inesperados del pipeline y agilizar tareas repetitivas de documentación. Las decisiones de arquitectura, las estrategias (GitFlow, contenedores, seguridad, orquestación) y las justificaciones técnicas salieron de nuestro criterio y del trabajo iterativo en el repositorio.
 
-> Cita sugerida (formato APA): Anthropic. (2026). *Claude Code* (Claude Opus 5.5) [Modelo de lenguaje de gran tamaño]. https://claude.com/claude-code
+### Contexto
+
+El microservicio base (`productos-service`) lo desarrollamos durante la Evaluación Parcial 1. En la EP2 el alcance creció bastante: contenedores, orquestación con Kubernetes, pipeline CI/CD de 13 jobs, pruebas automatizadas con umbral de cobertura, cinco herramientas de seguridad y despliegue automatizado. Todo ese trabajo lo hicimos nosotros, iterando en el repositorio: cada cambio pasó por un PR con revisión y por los 9 checks obligatorios antes de mergearse. La IA nos acompañó en momentos específicos, sobre todo cuando algo fallaba y necesitábamos una segunda mirada para encontrar la causa.
+
+### Uso puntual de IA
+
+| Evaluación | Herramienta | En qué nos apoyó |
+|------------|-------------|------------------|
+| EP1 | Claude Code (Anthropic, Claude Opus 5.5), octubre 2026 | Correcciones puntuales en el código base del microservicio, ajustes al workflow inicial de GitHub Actions, al Dockerfile, y redacción descriptiva de documentación técnica. |
+| EP2 | Claude Code (Anthropic, Claude Opus 5.5), octubre 2026 | Apoyo en la corrección de errores puntuales del pipeline y de la configuración de Kubernetes, ajustes en las pruebas y en el Dockerfile, y redacción descriptiva de la documentación técnica (README, CI-CD, ORQUESTACION). |
+
+### Qué hicimos sin IA
+
+- El **diseño del pipeline** y su orden de jobs.
+- Las **decisiones técnicas** de la sección *Decisiones técnicas*.
+- La **elección de GitFlow** y su justificación.
+- Las **conclusiones y reflexiones personales** de cada integrante (EP1 y EP2).
+- La **implementación de cada cambio**: escritura de manifiestos, scripts, tests, workflow, PRs, resolución de conflictos y merges.
+
+Esas secciones las escribimos nosotros, sin apoyo de IA, como exige la pauta.
+
+### Validación y autoría
+
+Todo lo que pasó por apoyo de IA lo revisamos, probamos y validamos antes de integrarlo. Nada entró al repositorio sin pasar por un PR y por los checks obligatorios. La evidencia está en el repo:
+
+- **68 ejecuciones del pipeline** con resultados verificables.
+- **PR #19 bloqueado** por una dependencia vulnerable (CVE-2021-23337), mostrando que los controles funcionan.
+- **PR #22** con los 12 checks en verde.
+- **93 pruebas automatizadas** con ~98.8% de cobertura de líneas.
+- **Branch protection** en `main` y `develop`: rechaza push directo y exige PR con 9 checks obligatorios.
+- **Hotfix v1.0.1** corregido en producción sin arrastrar trabajo de `develop`.
+
+Ambos asumimos la autoría del proyecto y respondemos por su funcionamiento y por entender cada decisión técnica.
+
+### Cita sugerida (formato APA)
+
+Anthropic. (2026). *Claude Code* (Claude Opus 5.5) [Modelo de lenguaje de gran tamaño]. https://claude.com/claude-code
 
 ## Conclusiones y reflexión personal
 
 ### EP1
 
-> ✍️ **Sección pendiente: la redacta el estudiante sin apoyo de IA**, como exige la pauta.
->
-> Incluir: qué aprendiste sobre control de versiones, GitFlow y CI/CD; qué dificultades tuviste; cuál fue tu contribución (trabajo individual).
+#### Reflexión de Bastián Lazo
+
+Este trabajo me permitió aplicar conceptos que ya conocía de Git, pero con un nivel de orden mayor al que estaba utilizando anteriormente. Si bien estaba acostumbrado a utilizar diversas ramas, en este caso le di mayor importancia todavía a mantener ese orden e historial de trabajo en diversas ramas del repositorio.
+
+El mayor desafío fue la configuración de GitHub Actions, en concreto la gestión de credenciales en Firebase sin escribirlas directamente en el código, que era algo que pasaba por alto en mis proyectos anteriores.
+
+Esta experiencia me demostró que seguir un flujo de trabajo definido aporta demasiado valor y orden al proyecto, además de poder trabajar con más confianza al momento de implementar cambios gracias a contar con una etapa de revisión previa a su integración en producción.
+
+#### Reflexión de Benjamín Stavrakopulos
+
+Con este trabajo pude entender mejor varias cosas que antes conocía más que nada de teoría. Una de ellas fue el tema de las credenciales de Firebase, ya que al principio podría parecer normal dejarlas dentro del proyecto, pero al subirlo a GitHub eso puede terminar exponiendo información que no debería ser pública. Por eso fue importante usar los secretos de GitHub y así poder ocupar esas credenciales en el workflow sin dejarlas directamente en el repositorio.
+
+También me sirvió bastante poder hacer funcionar el workflow y ver que realmente se podía automatizar el despliegue. Antes veía DevOps más relacionado con Git, GitHub y el manejo de ramas, pero haciendo este trabajo me quedó más claro que también tiene que ver con automatizar procesos, revisar los cambios antes de subirlos y tratar de mantener el proyecto más ordenado y seguro.
+
+Más adelante se podrían agregar más pruebas automáticas al workflow y también incluir el backend, para que no solamente se revise y despliegue una parte del proyecto.
 
 ### EP2
 
-> ✍️ **Sección pendiente: la redacta el estudiante sin apoyo de IA**, como exige la pauta.
->
-> Incluir: qué aprendiste sobre contenedores, pruebas automatizadas, seguridad en el pipeline, despliegue y orquestación; qué dificultades tuviste (por ejemplo, el estado en memoria con varias réplicas o el healthcheck IPv6 del balanceador); cuál fue tu contribución (trabajo individual).
+#### Reflexión de Bastián Lazo
 
-## Autor
+En esta segunda evaluación el pipeline creció bastante, pasamos de solo automatizar el despliegue a sumar contenedores, pruebas con umbral de cobertura, análisis de seguridad, despliegue a Kubernetes y orquestación. Al principio era harta información nueva, pero a medida que fuimos armando el workflow se entendió cómo se conectaba cada parte.
 
-**Benjamín Stavrakopulos** – [@BenjaminStavrakopulos](https://github.com/BenjaminStavrakopulos)
+Lo que más me costó fue la orquestación con varias réplicas. En la EP1 el proyecto funcionaba como una sola instancia y eso no se pensaba, pero al probar el escalado apareció el problema del estado en memoria, cada réplica manejaba datos por su lado. Tuvimos que ajustar la lógica para que el estado viviera fuera del contenedor. En ese momento varias cosas teoricas pasadas en clase las comence a conectar con estos problemas que se nos fueron presentando.
+
+También me sirvió ver cómo los controles de seguridad actúan de verdad. Un PR quedó bloqueado automáticamente al detectar una dependencia vulnerable, sin que nadie tuviera que revisarlo a mano. Eso cambia la forma de trabajar, porque permite avanzar con más confianza sabiendo que hay etapas que revisan antes de llegar a producción. Mi aporte al trabajo en pareja estuvo en la parte de orquestación con Kubernetes y en varias etapas del pipeline de pruebas y validaciones.
+
+#### Reflexión de Benjamín Stavrakopulos
+
+> *(Escribe aquí tu reflexión personal, sin apoyo de IA.)*
+
+## Autores
+
+- **Bastián Lazo** – [@BastianLazo](https://github.com/BastianLazo)
+- **Benjamín Stavrakopulos** – [@BenjaminStavrakopulos](https://github.com/BenjaminStavrakopulos)

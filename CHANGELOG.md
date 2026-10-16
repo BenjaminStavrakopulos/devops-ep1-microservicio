@@ -4,6 +4,16 @@ Todos los cambios relevantes de este proyecto se documentan en este archivo.
 
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
+## [1.2.2] - 2026-10-16
+
+### Documentación
+- README completo con autoría en pareja (Bastián Lazo y Benjamín Stavrakopulos).
+- Sección *Decisiones técnicas* con las justificaciones de cada elección.
+- Justificación de la elección de GitFlow frente a otros modelos.
+- Declaración de uso de IA reescrita con el alcance real.
+- Reflexiones personales de EP1 y EP2 de cada integrante.
+- Evidencias adicionales: tamaño de imagen, runs cancelled/failed, hallazgo LOW aceptado y branch protection.
+
 ## [1.2.1] - 2026-10-16
 
 ### Mantenimiento
