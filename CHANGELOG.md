@@ -4,6 +4,11 @@ Todos los cambios relevantes de este proyecto se documentan en este archivo.
 
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
+## [1.0.2] - 2026-10-15
+
+### Documentación
+- Registro de la simulación del flujo GitFlow y guía de trazabilidad en `docs/TRAZABILIDAD.md` (#9).
+
 ## [1.0.1] - 2026-10-15
 
 ### Corregido
@@ -23,6 +28,7 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/
 ### Agregado
 - Versión inicial del microservicio: `GET /health`, `GET /api/productos`, `GET /api/productos/:id` y `POST /api/productos`.
 
+[1.0.2]: https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/compare/616772e...v1.0.0
 [0.1.0]: https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/commit/616772e

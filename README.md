@@ -157,6 +157,7 @@ Resumen (el detalle está en la [guía de buenas prácticas](docs/GUIA-BUENAS-PR
 |-----------|-----------|
 | [docs/GUIA-BUENAS-PRACTICAS.md](docs/GUIA-BUENAS-PRACTICAS.md) | Naming de ramas, commits, flujos de merge, revisión, versionado, estructura de carpetas |
 | [docs/CI-CD.md](docs/CI-CD.md) | Funcionamiento y rol del pipeline de GitHub Actions |
+| [docs/TRAZABILIDAD.md](docs/TRAZABILIDAD.md) | Simulación del flujo GitFlow: comandos, PRs, tags y cómo rastrear cada cambio |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Pasos rápidos para contribuir |
 
 ## Declaración de uso de Inteligencia Artificial
