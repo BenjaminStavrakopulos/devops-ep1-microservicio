@@ -67,3 +67,46 @@ describe('POST /api/productos', () => {
     assert.equal(res.status, 400);
   });
 });
+
+describe('PUT /api/productos/:id', () => {
+  test('reemplaza un producto existente', async () => {
+    const datos = { nombre: 'Teclado 60%', categoria: 'perifericos', precio: 39990, stock: 4 };
+    const res = await enviarJson(`${srv.baseUrl}/api/productos/1`, 'PUT', datos);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { id: 1, ...datos });
+  });
+
+  test('exige todos los campos obligatorios', async () => {
+    const res = await enviarJson(`${srv.baseUrl}/api/productos/1`, 'PUT', { precio: 100 });
+    assert.equal(res.status, 400);
+  });
+
+  test('responde 404 si el producto no existe', async () => {
+    const res = await enviarJson(`${srv.baseUrl}/api/productos/999`, 'PUT', { nombre: 'X', precio: 1, stock: 1 });
+    assert.equal(res.status, 404);
+  });
+});
+
+describe('PATCH /api/productos/:id', () => {
+  test('actualiza solo los campos enviados', async () => {
+    const res = await enviarJson(`${srv.baseUrl}/api/productos/2`, 'PATCH', { stock: 0 });
+    assert.equal(res.status, 200);
+    const producto = await res.json();
+    assert.equal(producto.stock, 0);
+    assert.equal(producto.nombre, 'Mouse inalámbrico');
+  });
+
+  test('valida los campos enviados', async () => {
+    const res = await enviarJson(`${srv.baseUrl}/api/productos/2`, 'PATCH', { precio: 'gratis' });
+    assert.equal(res.status, 400);
+  });
+});
+
+describe('DELETE /api/productos/:id', () => {
+  test('elimina un producto existente', async () => {
+    const res = await fetch(`${srv.baseUrl}/api/productos/3`, { method: 'DELETE' });
+    assert.equal(res.status, 204);
+    const consulta = await fetch(`${srv.baseUrl}/api/productos/3`);
+    assert.equal(consulta.status, 404);
+  });
+});

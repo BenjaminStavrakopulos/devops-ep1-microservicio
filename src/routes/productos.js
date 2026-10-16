@@ -31,4 +31,33 @@ router.post('/', (req, res) => {
   res.status(201).location(`/api/productos/${producto.id}`).json(producto);
 });
 
+// PUT reemplaza el producto completo; PATCH actualiza solo los campos enviados
+function actualizarProducto({ parcial }) {
+  return (req, res) => {
+    const id = parsearId(req.params.id);
+    if (id === null) return res.status(400).json({ error: 'El id debe ser un entero positivo' });
+
+    const errores = validarProducto(req.body, { parcial });
+    if (errores.length > 0) return res.status(400).json({ errores });
+
+    const producto = repo.actualizar(id, filtrarCampos(req.body));
+    if (!producto) return res.status(404).json({ error: `Producto ${id} no encontrado` });
+
+    res.json(producto);
+  };
+}
+
+router.put('/:id', actualizarProducto({ parcial: false }));
+router.patch('/:id', actualizarProducto({ parcial: true }));
+
+router.delete('/:id', (req, res) => {
+  const id = parsearId(req.params.id);
+  if (id === null) return res.status(400).json({ error: 'El id debe ser un entero positivo' });
+
+  const eliminado = repo.eliminar(id);
+  if (!eliminado) return res.status(404).json({ error: `Producto ${id} no encontrado` });
+
+  res.status(204).end();
+});
+
 module.exports = router;

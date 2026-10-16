@@ -22,3 +22,6 @@ npm test           # ejecuta las pruebas
 | GET    | `/api/productos`      | Lista todos los productos   |
 | GET    | `/api/productos/:id`  | Obtiene un producto por id  |
 | POST   | `/api/productos`      | Crea un producto            |
+| PUT    | `/api/productos/:id`  | Reemplaza un producto       |
+| PATCH  | `/api/productos/:id`  | Actualiza campos de un producto |
+| DELETE | `/api/productos/:id`  | Elimina un producto         |
