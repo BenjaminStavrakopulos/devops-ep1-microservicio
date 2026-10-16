@@ -1,8 +1,9 @@
 # Pipeline CI/CD de productos-service
 #
-#   PR -> develop / main : validar commits + escaneo de secretos -> lint + tests -> build imagen + smoke test
-#   push -> develop      : lint + tests -> build imagen -> deploy al entorno "staging" simulado
-#   push -> main         : lint + tests -> build imagen -> publicar imagen en GHCR (entorno "production")
+#   PR -> develop / main : commits + secretos + dependencias -> lint + tests -> imagen + Trivy -> e2e Compose
+#   push -> develop      : controles -> imagen + Trivy -> deploy al entorno "staging" simulado
+#   push -> main         : controles -> imagen + Trivy -> publicar imagen en GHCR (entorno "production")
+#   Si falla un control de seguridad en develop/main se abre un issue "seguridad" (alerta).
 name: CI/CD
 
 on:
@@ -107,10 +108,47 @@ jobs:
           docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.18.4 \
             detect --source=/repo --redact --verbose --exit-code=1
 
+  auditoria-dependencias:
+    name: Auditoría de dependencias (npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      # Bloqueo: falla si alguna dependencia tiene vulnerabilidades altas o críticas conocidas
+      - name: Vulnerabilidades conocidas (umbral high)
+        run: npm audit --audit-level=high
+      - name: Verificar firmas de los paquetes del registro
+        run: npm audit signatures
+
+  revision-dependencias:
+    name: Revisión de dependencias del PR
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+      # Bloquea el PR si agrega dependencias con vulnerabilidades altas o licencias no permitidas
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          deny-licenses: GPL-3.0, AGPL-3.0
+          comment-summary-in-pr: on-failure
+
   build-imagen:
     name: Build de imagen Docker y smoke test
-    needs: [lint-y-tests, escaneo-secretos]
+    needs: [lint-y-tests, escaneo-secretos, auditoria-dependencias]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # subir resultados de Trivy a la pestaña Security
+    env:
+      TRIVY: aquasec/trivy:0.74.0
     steps:
       - uses: actions/checkout@v5
       - name: Construir imagen con metadatos de trazabilidad
@@ -132,6 +170,30 @@ jobs:
             echo "| Versión (label OCI) | $(docker image inspect $IMAGE_NAME:${{ github.sha }} --format '{{index .Config.Labels "org.opencontainers.image.version"}}') |"
             echo "| Commit (label OCI) | $(docker image inspect $IMAGE_NAME:${{ github.sha }} --format '{{index .Config.Labels "org.opencontainers.image.revision"}}') |"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Escaneo de vulnerabilidades de la imagen (Trivy, reporte SARIF)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/" -v "$PWD:/out" $TRIVY \
+            image --format sarif --output /out/trivy.sarif $IMAGE_NAME:${{ github.sha }}
+      - name: Publicar hallazgos en GitHub Security (alertas)
+        if: always() && hashFiles('trivy.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy.sarif
+          category: trivy-imagen
+      # Bloqueo: si la imagen tiene vulnerabilidades HIGH/CRITICAL con parche disponible, no se despliega
+      - name: Bloquear si hay vulnerabilidades altas o críticas
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/" $TRIVY \
+            image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 $IMAGE_NAME:${{ github.sha }}
+      - name: Generar SBOM (CycloneDX)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/" -v "$PWD:/out" $TRIVY \
+            image --format cyclonedx --output /out/sbom.cdx.json $IMAGE_NAME:${{ github.sha }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-imagen
+          path: sbom.cdx.json
+          retention-days: 30
       - name: Levantar contenedor endurecido
         run: |
           docker run -d --name smoke -p 3000:3000 \
@@ -267,3 +329,35 @@ jobs:
             echo ""
             echo "Digest: \`$DIGEST\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  alerta-seguridad:
+    name: Alerta de seguridad
+    # Alerta: si un control de seguridad falla en develop o main, se abre (o actualiza) un issue etiquetado "seguridad".
+    # En los PRs el aviso es el propio check en rojo, que bloquea el merge (protección de ramas).
+    if: failure() && github.event_name == 'push'
+    needs: [escaneo-secretos, auditoria-dependencias, build-imagen]
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Crear o actualizar issue de seguridad
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RESULTADOS: |
+            | Control | Resultado |
+            |---|---|
+            | Escaneo de secretos (gitleaks) | ${{ needs.escaneo-secretos.result }} |
+            | Auditoría de dependencias (npm audit) | ${{ needs.auditoria-dependencias.result }} |
+            | Build de imagen + Trivy | ${{ needs.build-imagen.result }} |
+        run: |
+          TITULO="Fallo de controles de seguridad en ${GITHUB_REF_NAME}"
+          URL_RUN="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          CUERPO=$(printf 'El pipeline detectó un problema de seguridad y **bloqueó el despliegue**.\n\n- Rama: `%s`\n- Commit: `%s`\n- Ejecución: %s\n\n%s\n\nRevisar los logs y la pestaña *Security* del repositorio.' \
+            "$GITHUB_REF_NAME" "${GITHUB_SHA::7}" "$URL_RUN" "$RESULTADOS")
+          EXISTENTE=$(gh issue list --label seguridad --state open --search "in:title \"$TITULO\"" --json number --jq '.[0].number')
+          if [[ -n "$EXISTENTE" ]]; then
+            gh issue comment "$EXISTENTE" --body "$CUERPO"
+          else
+            gh issue create --title "$TITULO" --label seguridad --body "$CUERPO"
+          fi

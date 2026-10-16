@@ -1,0 +1,56 @@
+# Dependabot: escaneo y actualización automática de dependencias.
+#  - Las actualizaciones de versión se proponen como PR hacia develop (siguen el flujo GitFlow).
+#  - Las alertas y actualizaciones de SEGURIDAD se activan en Settings -> Code security y GitHub
+#    las abre siempre contra la rama por defecto (main), como un hotfix.
+#  - Los mensajes de commit usan Conventional Commits para pasar la validación del pipeline.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: America/Santiago
+    open-pull-requests-limit: 5
+    labels: [dependencias]
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      produccion-menores:
+        dependency-type: production
+        update-types: [minor, patch]
+      desarrollo-menores:
+        dependency-type: development
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: America/Santiago
+    labels: [dependencias, ci]
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      acciones:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: America/Santiago
+    labels: [dependencias]
+    commit-message:
+      prefix: build
+      include: scope
