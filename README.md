@@ -178,7 +178,7 @@ Manifiestos en [`k8s/`](k8s) con **Kustomize** (`base/` + `overlays/staging` y `
 | Infraestructura como código | `trivy config` + `kubeconform` sobre manifiestos y Dockerfile | Bloqueo |
 | Pipeline | `permissions` mínimos por job, `GITHUB_TOKEN` efímero, versiones de herramientas fijadas | — |
 | Despliegue | Credenciales de BD aleatorias por despliegue, Pod Security *restricted*, NetworkPolicy | — |
-| Ramas | Protección de `main`/`develop`: 8 checks obligatorios | Bloqueo del merge |
+| Ramas | Protección de `main`/`develop`: 9 checks obligatorios | Bloqueo del merge |
 | Cualquier fallo en `develop`/`main` | Job *Alerta de seguridad* | Issue `seguridad` |
 
 La prueba de que los bloqueos funcionan está en el [PR #19](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/19): agregaba `lodash@4.17.20` (CVE-2021-23337, severidad alta), la auditoría y la revisión de dependencias fallaron, no se construyó ni desplegó la imagen y el PR quedó **BLOCKED**. Política completa en [SECURITY.md](SECURITY.md).
