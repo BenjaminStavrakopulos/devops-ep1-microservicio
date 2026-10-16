@@ -1,12 +1,15 @@
 const { crearApp } = require('./app');
 const repo = require('./data');
+const { conReintentos } = require('./reintentos');
 
 const PORT = Number(process.env.PORT) || 3000;
 // Kubernetes espera 30 s por defecto (terminationGracePeriodSeconds) antes de forzar el cierre
 const TIEMPO_MAXIMO_APAGADO_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS) || 10000;
 
 async function iniciar() {
-  await repo.inicializar();
+  await conReintentos(() => repo.inicializar(), {
+    alFallar: (error, intento) => console.warn(`Base de datos no disponible (intento ${intento}): ${error.message}`),
+  });
   const app = crearApp();
   const server = app.listen(PORT, () => {
     console.log(`productos-service escuchando en el puerto ${PORT} (almacenamiento: ${repo.tipo})`);
