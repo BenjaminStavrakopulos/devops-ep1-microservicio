@@ -1,8 +1,8 @@
 # Pipeline CI/CD de productos-service
 #
 #   PR -> develop / main : commits + secretos + dependencias -> lint + tests -> imagen + Trivy -> e2e Compose
-#   push -> develop      : controles -> imagen + Trivy -> deploy al entorno "staging" simulado
-#   push -> main         : controles -> imagen + Trivy -> publicar imagen en GHCR (entorno "production")
+#   push -> develop      : controles -> imagen + Trivy -> deploy a staging en Kubernetes (kind)
+#   push -> main         : controles -> imagen + Trivy -> publicar en GHCR -> deploy a production en Kubernetes (kind)
 #   Si falla un control de seguridad en develop/main se abre un issue "seguridad" (alerta).
 name: CI/CD
 
@@ -12,6 +12,11 @@ on:
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
+    inputs:
+      desplegar_staging:
+        description: "Desplegar esta rama en staging (Kubernetes)"
+        type: boolean
+        default: false
 
 # Si llega un push nuevo a la misma rama/PR, se cancela la ejecución anterior
 concurrency:
@@ -140,6 +145,28 @@ jobs:
           deny-licenses: GPL-3.0, AGPL-3.0
           comment-summary-in-pr: on-failure
 
+  validar-manifiestos:
+    name: Validación de manifiestos e IaC
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Instalar kustomize y kubeconform
+        run: bash scripts/instalar-herramientas-k8s.sh
+      - name: Renderizar overlays de Kubernetes
+        run: |
+          mkdir -p render
+          for entorno in staging production; do
+            kustomize build "k8s/overlays/$entorno" > "render/$entorno.yaml"
+          done
+          cp Dockerfile render/
+      - name: Validar contra el esquema de la API de Kubernetes
+        run: kubeconform -strict -summary render/staging.yaml render/production.yaml
+      # Bloqueo: configuraciones inseguras HIGH/CRITICAL en manifiestos o Dockerfile (privilegios, root, etc.)
+      - name: Analizar configuración de seguridad (Trivy config)
+        run: |
+          docker run --rm -v "$PWD/render:/iac" aquasec/trivy:0.74.0 \
+            config --severity HIGH,CRITICAL --exit-code 1 /iac
+
   build-imagen:
     name: Build de imagen Docker y smoke test
     needs: [lint-y-tests, escaneo-secretos, auditoria-dependencias]
@@ -242,15 +269,16 @@ jobs:
         run: docker compose down -v
 
   deploy-staging:
-    name: Deploy a staging (cloud simulado)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
-    needs: build-imagen
+    name: Deploy a staging (Kubernetes)
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/develop') || inputs.desplegar_staging
+    needs: [build-imagen, validar-manifiestos]
     runs-on: ubuntu-latest
     environment:
       name: staging
-      url: http://localhost:3000
+      url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     env:
       IMAGE: productos-service:${{ github.sha }}
+      OVERLAY: staging
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
@@ -258,45 +286,64 @@ jobs:
           name: imagen-docker
       - name: Cargar imagen construida
         run: gunzip -c imagen.tar.gz | docker load
-      - name: Generar credenciales efímeras de la base de datos
+      - name: Crear clúster Kubernetes (kind, 3 nodos)
+        uses: helm/kind-action@v1.15.0
+        with:
+          cluster_name: productos
+          config: k8s/kind-config.yaml
+      - name: Instalar kustomize y metrics-server
         run: |
-          PASSWORD="$(openssl rand -hex 24)"
-          echo "::add-mask::$PASSWORD"
-          echo "POSTGRES_PASSWORD=$PASSWORD" >> "$GITHUB_ENV"
-      - name: Desplegar stack (lb + api x3 + PostgreSQL), probar y escalar
-        run: bash scripts/desplegar-compose.sh
+          bash scripts/instalar-herramientas-k8s.sh
+          kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.8.1/components.yaml
+          # En kind los kubelets usan certificados autofirmados
+          kubectl -n kube-system patch deployment metrics-server --type=json \
+            -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+          kubectl -n kube-system rollout status deployment/metrics-server --timeout=180s
+      - name: Cargar la imagen en los nodos del clúster
+        run: kind load docker-image "$IMAGE" --name productos
+      - name: Desplegar (rollout + smoke test, rollback automático si falla)
+        env:
+          CHANGE_CAUSE: "v${{ github.run_number }} commit ${{ github.sha }}"
+        run: bash scripts/desplegar-k8s.sh
+      - name: Pruebas de orquestación (balanceo, rolling update sin caída, HPA)
+        run: bash scripts/pruebas-k8s.sh
       - name: Resumen del despliegue
+        if: always()
         run: |
           {
-            echo "## Deploy a staging exitoso"
-            echo "| Dato | Valor |"
-            echo "|---|---|"
-            echo "| Commit | \`${GITHUB_SHA::7}\` |"
-            echo "| Imagen | \`$IMAGE\` |"
-            echo "| Versión | $(curl -s http://localhost:3000/health | jq -r .version) |"
-            echo "| Almacenamiento | $(curl -s http://localhost:3000/health | jq -r .almacenamiento) |"
-            echo "| Réplicas de la API | $(docker compose ps api --format '{{.Name}}' | wc -l) |"
-            echo ""
+            echo "## Estado del clúster (staging)"
             echo '```'
-            docker compose ps --format 'table {{.Name}}\t{{.Image}}\t{{.Status}}'
+            kubectl get nodes -o wide
+            echo
+            kubectl -n productos-staging get deploy,sts,pods,svc,hpa,pdb,networkpolicy -o wide
+            echo
+            kubectl -n productos-staging rollout history deployment/productos-api
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Logs en caso de fallo
-        if: failure()
-        run: docker compose logs --tail 100
-      - name: Bajar entorno
+      - name: Guardar manifiesto aplicado
         if: always()
-        run: docker compose down -v
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifiesto-staging
+          path: manifiesto-staging.yaml
+          retention-days: 30
+      - name: Diagnóstico en caso de fallo
+        if: failure()
+        run: |
+          kubectl -n productos-staging get events --sort-by=.lastTimestamp | tail -40
+          kubectl -n productos-staging describe pods | tail -80
+          kubectl -n productos-staging logs -l app.kubernetes.io/part-of=productos --tail 50 --prefix
 
   publicar-imagen:
     name: Publicar imagen en GHCR (production)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: build-imagen
+    needs: [build-imagen, validar-manifiestos]
     runs-on: ubuntu-latest
-    environment: production
     permissions:
       contents: read
       packages: write
+    outputs:
+      imagen: ${{ steps.publicar.outputs.digest }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
@@ -330,12 +377,74 @@ jobs:
             echo "Digest: \`$DIGEST\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  deploy-production:
+    name: Deploy a production (Kubernetes)
+    needs: publicar-imagen
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    permissions:
+      contents: read
+      packages: read
+    env:
+      # Se despliega por digest: la referencia es inmutable y apunta exactamente a la imagen probada
+      IMAGE: ${{ needs.publicar-imagen.outputs.imagen }}
+      OVERLAY: production
+    steps:
+      - uses: actions/checkout@v5
+      - name: Crear clúster Kubernetes (kind, 3 nodos)
+        uses: helm/kind-action@v1.15.0
+        with:
+          cluster_name: productos
+          config: k8s/kind-config.yaml
+      - name: Instalar kustomize y metrics-server
+        run: |
+          bash scripts/instalar-herramientas-k8s.sh
+          kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.8.1/components.yaml
+          kubectl -n kube-system patch deployment metrics-server --type=json \
+            -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+          kubectl -n kube-system rollout status deployment/metrics-server --timeout=180s
+      - name: Desplegar desde GHCR (rollout + smoke test, rollback automático si falla)
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHANGE_CAUSE: "v${{ github.run_number }} commit ${{ github.sha }}"
+        run: bash scripts/desplegar-k8s.sh
+      - name: Pruebas de orquestación (balanceo, rolling update sin caída, HPA)
+        run: bash scripts/pruebas-k8s.sh
+      - name: Resumen del despliegue
+        if: always()
+        run: |
+          {
+            echo "## Estado del clúster (production)"
+            echo "Imagen desplegada: \`$IMAGE\`"
+            echo '```'
+            kubectl -n productos-production get deploy,sts,pods,svc,hpa,pdb,networkpolicy -o wide
+            echo
+            kubectl -n productos-production rollout history deployment/productos-api
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Guardar manifiesto aplicado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifiesto-production
+          path: manifiesto-production.yaml
+          retention-days: 90
+      - name: Diagnóstico en caso de fallo
+        if: failure()
+        run: |
+          kubectl -n productos-production get events --sort-by=.lastTimestamp | tail -40
+          kubectl -n productos-production describe pods | tail -80
+          kubectl -n productos-production logs -l app.kubernetes.io/part-of=productos --tail 50 --prefix
+
   alerta-seguridad:
     name: Alerta de seguridad
     # Alerta: si un control de seguridad falla en develop o main, se abre (o actualiza) un issue etiquetado "seguridad".
     # En los PRs el aviso es el propio check en rojo, que bloquea el merge (protección de ramas).
     if: failure() && github.event_name == 'push'
-    needs: [escaneo-secretos, auditoria-dependencias, build-imagen]
+    needs: [escaneo-secretos, auditoria-dependencias, validar-manifiestos, build-imagen]
     runs-on: ubuntu-latest
     permissions:
       issues: write
@@ -349,6 +458,7 @@ jobs:
             |---|---|
             | Escaneo de secretos (gitleaks) | ${{ needs.escaneo-secretos.result }} |
             | Auditoría de dependencias (npm audit) | ${{ needs.auditoria-dependencias.result }} |
+            | Manifiestos e IaC (kubeconform + Trivy config) | ${{ needs.validar-manifiestos.result }} |
             | Build de imagen + Trivy | ${{ needs.build-imagen.result }} |
         run: |
           TITULO="Fallo de controles de seguridad en ${GITHUB_REF_NAME}"
