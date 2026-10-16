@@ -1,0 +1,173 @@
+# Pipeline CI/CD de productos-service
+#
+#   PR -> develop / main : validar commits -> lint + tests -> build imagen + smoke test
+#   push -> develop      : lint + tests -> build imagen -> deploy al entorno "staging" simulado
+#   push -> main         : lint + tests -> build imagen -> publicar imagen en GHCR (entorno "production")
+name: CI/CD
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+# Si llega un push nuevo a la misma rama/PR, se cancela la ejecución anterior
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: productos-service
+
+jobs:
+  validar-commits:
+    name: Validar convención de commits
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Verificar Conventional Commits
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          PATRON='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9-]+\))?!?: .{3,}'
+          INVALIDOS=0
+          while IFS= read -r msg; do
+            # Los merge commits generados por GitHub/Git se aceptan
+            if [[ "$msg" =~ ^Merge\  ]] || [[ "$msg" =~ $PATRON ]]; then
+              echo "OK     $msg"
+            else
+              echo "::error::Mensaje de commit inválido: '$msg'"
+              INVALIDOS=$((INVALIDOS + 1))
+            fi
+          done < <(git log --format=%s "$BASE_SHA..$HEAD_SHA")
+          if [[ $INVALIDOS -gt 0 ]]; then
+            echo "Hay $INVALIDOS commit(s) que no siguen Conventional Commits. Ver docs/GUIA-BUENAS-PRACTICAS.md"
+            exit 1
+          fi
+
+  lint-y-tests:
+    name: Lint y tests (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Instalar dependencias
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Tests con cobertura
+        run: npm run test:coverage
+
+  build-imagen:
+    name: Build de imagen Docker y smoke test
+    needs: lint-y-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Construir imagen
+        run: docker build -t $IMAGE_NAME:${{ github.sha }} .
+      - name: Levantar contenedor
+        run: docker run -d --name smoke -p 3000:3000 $IMAGE_NAME:${{ github.sha }}
+      - name: Pruebas de humo
+        run: bash scripts/smoke-test.sh http://localhost:3000
+      - name: Logs del contenedor
+        if: always()
+        run: docker logs smoke
+      - name: Exportar imagen
+        run: docker save $IMAGE_NAME:${{ github.sha }} | gzip > imagen.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: imagen-docker
+          path: imagen.tar.gz
+          retention-days: 3
+
+  deploy-staging:
+    name: Deploy a staging (cloud simulado)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    needs: build-imagen
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: imagen-docker
+      - name: Cargar imagen construida
+        run: gunzip -c imagen.tar.gz | docker load
+      - name: Desplegar con Docker Compose
+        env:
+          IMAGE: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+        run: docker compose up -d --no-build --wait
+      - name: Verificar despliegue
+        run: bash scripts/smoke-test.sh http://localhost:3000
+      - name: Resumen del despliegue
+        run: |
+          {
+            echo "## Deploy a staging exitoso"
+            echo "| Dato | Valor |"
+            echo "|---|---|"
+            echo "| Commit | \`${GITHUB_SHA::7}\` |"
+            echo "| Imagen | \`$IMAGE_NAME:${GITHUB_SHA::7}\` |"
+            echo "| Versión | $(curl -s http://localhost:3000/health | jq -r .version) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Bajar entorno
+        if: always()
+        run: docker compose down
+
+  publicar-imagen:
+    name: Publicar imagen en GHCR (production)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build-imagen
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Leer versión del package.json
+        id: version
+        run: echo "valor=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Metadatos de la imagen
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ steps.version.outputs.valor }}
+            type=sha
+      - name: Construir y publicar
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+      - name: Resumen
+        run: |
+          echo "## Imagen publicada en GitHub Container Registry" >> "$GITHUB_STEP_SUMMARY"
+          echo '${{ steps.meta.outputs.tags }}' | sed 's/^/- `/; s/$/`/' >> "$GITHUB_STEP_SUMMARY"
