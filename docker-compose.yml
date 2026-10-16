@@ -1,0 +1,17 @@
+# Entorno "cloud simulado": el pipeline levanta este stack en el runner de GitHub Actions
+# para desplegar la imagen recién construida y validarla con pruebas de humo.
+services:
+  productos-service:
+    image: ${IMAGE:-productos-service:local}
+    build: .
+    container_name: productos-service
+    environment:
+      - PORT=3000
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
