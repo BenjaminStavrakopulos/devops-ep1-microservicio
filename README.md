@@ -511,17 +511,29 @@ Anthropic. (2026). *Claude Code* (Claude Opus 5.5) [Modelo de lenguaje de gran t
 
 #### Reflexión de Bastián Lazo
 
-> *(Escribe aquí tu reflexión personal, sin apoyo de IA.)*
+Este trabajo me permitió aplicar conceptos que ya conocía de Git, pero con un nivel de orden mayor al que estaba utilizando anteriormente. Si bien estaba acostumbrado a utilizar diversas ramas, en este caso le di mayor importancia todavía a mantener ese orden e historial de trabajo en diversas ramas del repositorio.
+
+El mayor desafío fue la configuración de GitHub Actions, en concreto la gestión de credenciales en Firebase sin escribirlas directamente en el código, que era algo que pasaba por alto en mis proyectos anteriores.
+
+Esta experiencia me demostró que seguir un flujo de trabajo definido aporta demasiado valor y orden al proyecto, además de poder trabajar con más confianza al momento de implementar cambios gracias a contar con una etapa de revisión previa a su integración en producción.
 
 #### Reflexión de Benjamín Stavrakopulos
 
-> *(Escribe aquí tu reflexión personal, sin apoyo de IA.)*
+Con este trabajo pude entender mejor varias cosas que antes conocía más que nada de teoría. Una de ellas fue el tema de las credenciales de Firebase, ya que al principio podría parecer normal dejarlas dentro del proyecto, pero al subirlo a GitHub eso puede terminar exponiendo información que no debería ser pública. Por eso fue importante usar los secretos de GitHub y así poder ocupar esas credenciales en el workflow sin dejarlas directamente en el repositorio.
+
+También me sirvió bastante poder hacer funcionar el workflow y ver que realmente se podía automatizar el despliegue. Antes veía DevOps más relacionado con Git, GitHub y el manejo de ramas, pero haciendo este trabajo me quedó más claro que también tiene que ver con automatizar procesos, revisar los cambios antes de subirlos y tratar de mantener el proyecto más ordenado y seguro.
+
+Más adelante se podrían agregar más pruebas automáticas al workflow y también incluir el backend, para que no solamente se revise y despliegue una parte del proyecto.
 
 ### EP2
 
 #### Reflexión de Bastián Lazo
 
-> *(Escribe aquí tu reflexión personal, sin apoyo de IA.)*
+En esta segunda evaluación el pipeline creció bastante, pasamos de solo automatizar el despliegue a sumar contenedores, pruebas con umbral de cobertura, análisis de seguridad, despliegue a Kubernetes y orquestación. Al principio era harta información nueva, pero a medida que fuimos armando el workflow se entendió cómo se conectaba cada parte.
+
+Lo que más me costó fue la orquestación con varias réplicas. En la EP1 el proyecto funcionaba como una sola instancia y eso no se pensaba, pero al probar el escalado apareció el problema del estado en memoria, cada réplica manejaba datos por su lado. Tuvimos que ajustar la lógica para que el estado viviera fuera del contenedor. En ese momento varias cosas teoricas pasadas en clase las comence a conectar con estos problemas que se nos fueron presentando.
+
+También me sirvió ver cómo los controles de seguridad actúan de verdad. Un PR quedó bloqueado automáticamente al detectar una dependencia vulnerable, sin que nadie tuviera que revisarlo a mano. Eso cambia la forma de trabajar, porque permite avanzar con más confianza sabiendo que hay etapas que revisan antes de llegar a producción. Mi aporte al trabajo en pareja estuvo en la parte de orquestación con Kubernetes y en varias etapas del pipeline de pruebas y validaciones.
 
 #### Reflexión de Benjamín Stavrakopulos
 
