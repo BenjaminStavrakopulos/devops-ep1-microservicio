@@ -480,11 +480,11 @@ jobs:
           RESULTADOS: |
             | Control | Resultado |
             |---|---|
-            | Análisis de código (SonarCloud Quality Gate) | ${{ needs.analisis-sonarcloud.result }} |
-            | Escaneo de secretos (gitleaks) | ${{ needs.escaneo-secretos.result }} |
-            | Auditoría de dependencias (npm audit) | ${{ needs.auditoria-dependencias.result }} |
-            | Manifiestos e IaC (kubeconform + Trivy config) | ${{ needs.validar-manifiestos.result }} |
-            | Build de imagen + Trivy | ${{ needs.build-imagen.result }} |
+            | SonarCloud | ${{ needs.analisis-sonarcloud.result }} |
+            | gitleaks | ${{ needs.escaneo-secretos.result }} |
+            | npm audit | ${{ needs.auditoria-dependencias.result }} |
+            | Manifiestos/IaC | ${{ needs.validar-manifiestos.result }} |
+            | Build+Trivy | ${{ needs.build-imagen.result == 'skipped' && 'no ejecutado (bloqueado antes)' || needs.build-imagen.result }} |
         run: |
           TITULO="Fallo de controles de seguridad en ${GITHUB_REF_NAME}"
           URL_RUN="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
