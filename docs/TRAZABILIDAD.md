@@ -32,8 +32,14 @@ Este documento registra paso a paso cómo se construyó el repositorio con **Git
 | [#21](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/21) | feature | `feature/analisis-sonarcloud` → `develop` | — | ✅ |
 | [#22](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/22) | feature (docs) | `feature/documentacion-pipeline-ep2` → `develop` | — | ✅ |
 | [#23](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/23) | release | `release/1.2.0` → `main` | tag **v1.2.0** | ✅ |
+| [#24](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/24) | Dependabot | `@eslint/js` 10 → `develop` | **cerrado**, reemplazado por #28 | ❌ `ERESOLVE` (peer dependency) |
+| [#25](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/25) | Dependabot | `eslint` 10 → `develop` | **cerrado**, reemplazado por #28 | ❌ SonarCloud sin secreto para Dependabot |
+| [#26](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/26) | Dependabot | 8 GitHub Actions → `develop` | pendiente | ❌ SonarCloud sin secreto para Dependabot |
+| [#27](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/27) | release (back-merge) | `release/1.2.0` → `develop` | — | ✅ |
+| [#28](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/28) | feature | `feature/actualizar-eslint-10` → `develop` | — | ✅ |
+| — | release | `release/1.2.1` → `main` | tag **v1.2.1** | ✅ |
 
-**Tags y releases:** [v1.0.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.0) · [v1.0.1](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.1) · [v1.0.2](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.2) · [v1.1.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.1.0) · [v1.2.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.2.0)
+**Tags y releases:** [v1.0.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.0) · [v1.0.1](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.1) · [v1.0.2](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.2) · [v1.1.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.1.0) · [v1.2.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.2.0) · [v1.2.1](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.2.1)
 
 **Imagen publicada:** `ghcr.io/benjaminstavrakopulos/productos-service` (etiquetas `1.0.0`, `1.0.1`, `latest`, `sha-*`)
 
@@ -255,6 +261,27 @@ gh pr close 19 --comment "..."                                                  
 gh api -X POST repos/<owner>/<repo>/branches/main/protection/required_status_checks/contexts   # agregar checks obligatorios
 gh secret set SONAR_TOKEN                                                                 # credencial de SonarCloud
 ```
+
+## Etapa 10: Dependabot y release 1.2.1
+
+Al llegar `dependabot.yml` a `main` con la v1.2.0, Dependabot abrió automáticamente tres PRs hacia `develop`. El pipeline los trató como cualquier otro cambio, y bloqueó los que no cumplían:
+
+- **#24** (`@eslint/js` 10): `npm ci` falló con `ERESOLVE`, porque `@eslint/js@10` requiere `eslint@^10` y Dependabot lo propuso solo.
+- **#25 y #26**: el job de SonarCloud falló porque GitHub no entrega los secretos del repositorio a los PRs de Dependabot. El token tiene que guardarse también como *Dependabot secret*.
+
+Respuesta:
+
+```bash
+git switch -c feature/actualizar-eslint-10
+npm install -D eslint@10.12.0 @eslint/js@10.0.1       # actualizar ambos juntos
+npm run lint && npm test && npm audit --audit-level=high
+# dependabot.yml: grupo "eslint" con eslint y @eslint/* (incluye versiones mayores)
+gh pr create --base develop ...                          # PR #28
+gh pr close 24 --comment "Reemplazado por #28 ..."
+gh pr close 25 --comment "Reemplazado por #28 ..."
+```
+
+Luego `release/1.2.1` llevó el cambio a `main` (tag `v1.2.1`) y se hizo el back-merge hacia `develop`.
 
 ## Historial resultante
 

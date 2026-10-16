@@ -388,6 +388,7 @@ El proyecto usa **Versionado Semántico** (`MAJOR.MINOR.PATCH`). Cada integraci�
 | [v1.0.2](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.2) | PATCH | `release/1.0.2` ([#10](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/10)) | Documentación de trazabilidad |
 | [v1.1.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.1.0) | MINOR | `release/1.1.0` ([#13](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/13)) | Escaneo de secretos en el pipeline y documentación de credenciales |
 | [v1.2.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.2.0) | MINOR | `release/1.2.0` ([#23](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/23)) | **EP2**: PostgreSQL, pruebas con umbral de cobertura, seguridad en el pipeline, Docker Compose y Kubernetes |
+| [v1.2.1](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.2.1) | PATCH | `release/1.2.1` | Mantenimiento: ESLint 10 y agrupación en Dependabot |
 
 ```bash
 git tag -l -n1                     # tags con su mensaje
