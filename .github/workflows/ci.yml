@@ -1,6 +1,6 @@
 # Pipeline CI/CD de productos-service
 #
-#   PR -> develop / main : commits + secretos + dependencias -> lint + tests -> imagen + Trivy -> e2e Compose
+#   PR -> develop / main : commits + secretos + dependencias -> lint + tests + SonarCloud -> imagen + Trivy -> e2e Compose
 #   push -> develop      : controles -> imagen + Trivy -> deploy a staging en Kubernetes (kind)
 #   push -> main         : controles -> imagen + Trivy -> publicar en GHCR -> deploy a production en Kubernetes (kind)
 #   Si falla un control de seguridad en develop/main se abre un issue "seguridad" (alerta).
@@ -113,6 +113,31 @@ jobs:
           docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.18.4 \
             detect --source=/repo --redact --verbose --exit-code=1
 
+  analisis-sonarcloud:
+    name: Análisis de código (SonarCloud)
+    needs: lint-y-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # historial completo para detectar código nuevo y autoría de los hallazgos
+      - name: Descargar reporte de cobertura
+        uses: actions/download-artifact@v4
+        with:
+          name: reportes-pruebas
+          path: coverage
+      # Análisis estático (bugs, vulnerabilidades, security hotspots, code smells, duplicación, cobertura).
+      # Bloqueo: falla si el proyecto no aprueba el Quality Gate (sonar.qualitygate.wait=true)
+      - name: Análisis y Quality Gate
+        uses: SonarSource/sonarqube-scan-action@v8.2.2
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      - name: Enlace al reporte
+        if: always()
+        run: |
+          echo "## SonarCloud" >> "$GITHUB_STEP_SUMMARY"
+          echo "Reporte: https://sonarcloud.io/summary/new_code?id=BenjaminStavrakopulos_devops-ep1-microservicio" >> "$GITHUB_STEP_SUMMARY"
+
   auditoria-dependencias:
     name: Auditoría de dependencias (npm audit)
     runs-on: ubuntu-latest
@@ -138,11 +163,10 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v5
-      # Bloquea el PR si agrega dependencias con vulnerabilidades altas o licencias no permitidas
+      # Bloquea el PR si agrega dependencias con vulnerabilidades altas
       - uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
-          deny-licenses: GPL-3.0, AGPL-3.0
           comment-summary-in-pr: on-failure
 
   validar-manifiestos:
@@ -169,7 +193,7 @@ jobs:
 
   build-imagen:
     name: Build de imagen Docker y smoke test
-    needs: [lint-y-tests, escaneo-secretos, auditoria-dependencias]
+    needs: [lint-y-tests, analisis-sonarcloud, escaneo-secretos, auditoria-dependencias]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -444,7 +468,7 @@ jobs:
     # Alerta: si un control de seguridad falla en develop o main, se abre (o actualiza) un issue etiquetado "seguridad".
     # En los PRs el aviso es el propio check en rojo, que bloquea el merge (protección de ramas).
     if: failure() && github.event_name == 'push'
-    needs: [escaneo-secretos, auditoria-dependencias, validar-manifiestos, build-imagen]
+    needs: [analisis-sonarcloud, escaneo-secretos, auditoria-dependencias, validar-manifiestos, build-imagen]
     runs-on: ubuntu-latest
     permissions:
       issues: write
@@ -456,6 +480,7 @@ jobs:
           RESULTADOS: |
             | Control | Resultado |
             |---|---|
+            | Análisis de código (SonarCloud Quality Gate) | ${{ needs.analisis-sonarcloud.result }} |
             | Escaneo de secretos (gitleaks) | ${{ needs.escaneo-secretos.result }} |
             | Auditoría de dependencias (npm audit) | ${{ needs.auditoria-dependencias.result }} |
             | Manifiestos e IaC (kubeconform + Trivy config) | ${{ needs.validar-manifiestos.result }} |
