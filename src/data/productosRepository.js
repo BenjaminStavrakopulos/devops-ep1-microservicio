@@ -27,6 +27,19 @@ function crear(datos) {
   return producto;
 }
 
+function actualizar(id, datos) {
+  const producto = obtenerPorId(id);
+  if (!producto) return undefined;
+  Object.assign(producto, datos);
+  return producto;
+}
+
+function eliminar(id) {
+  const indice = productos.findIndex((p) => p.id === id);
+  const [eliminado] = productos.splice(indice, 1);
+  return eliminado;
+}
+
 reiniciar();
 
-module.exports = { reiniciar, listar, obtenerPorId, crear };
+module.exports = { reiniciar, listar, obtenerPorId, crear, actualizar, eliminar };
