@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const repo = require('../data/productosRepository');
 const { validarProducto, filtrarCampos } = require('../validators/producto');
+const { parsearFiltros, aplicarFiltros } = require('../filtros/productos');
 
 const router = Router();
 
@@ -10,7 +11,10 @@ function parsearId(valor) {
 }
 
 router.get('/', (req, res) => {
-  res.json(repo.listar());
+  const { filtros, errores } = parsearFiltros(req.query);
+  if (errores.length > 0) return res.status(400).json({ errores });
+
+  res.json(aplicarFiltros(repo.listar(), filtros));
 });
 
 router.get('/:id', (req, res) => {
