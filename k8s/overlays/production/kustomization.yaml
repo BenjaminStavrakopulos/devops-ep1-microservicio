@@ -1,0 +1,50 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Production: se despliega con cada push a main, usando la imagen publicada en GHCR (por digest)
+namespace: productos-production
+
+resources:
+  - namespace.yaml
+  - ../../base
+
+labels:
+  - pairs:
+      app.kubernetes.io/environment: production
+    includeSelectors: false
+
+patches:
+  # Más capacidad base y más margen de escalado que staging
+  - target: { kind: Deployment, name: productos-api }
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests: { cpu: 200m, memory: 128Mi }
+          limits: { cpu: "1", memory: 384Mi }
+      # La imagen se descarga desde GHCR con este Secret (lo crea el pipeline con un token temporal)
+      - op: add
+        path: /spec/template/spec/imagePullSecrets
+        value:
+          - name: ghcr-pull
+  - target: { kind: HorizontalPodAutoscaler, name: productos-api }
+    patch: |
+      - op: replace
+        path: /spec/minReplicas
+        value: 3
+      - op: replace
+        path: /spec/maxReplicas
+        value: 8
+  - target: { kind: PodDisruptionBudget, name: productos-api }
+    patch: |
+      - op: replace
+        path: /spec/minAvailable
+        value: 2
+  - target: { kind: StatefulSet, name: productos-db }
+    patch: |
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+        value: 5Gi

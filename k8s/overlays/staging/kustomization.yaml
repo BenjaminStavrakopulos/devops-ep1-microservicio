@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Staging: se despliega automáticamente con cada push a develop
+namespace: productos-staging
+
+resources:
+  - namespace.yaml
+  - ../../base
+
+labels:
+  - pairs:
+      app.kubernetes.io/environment: staging
+    includeSelectors: false
+
+patches:
+  - target: { kind: HorizontalPodAutoscaler, name: productos-api }
+    patch: |
+      - op: replace
+        path: /spec/minReplicas
+        value: 2
+      - op: replace
+        path: /spec/maxReplicas
+        value: 4

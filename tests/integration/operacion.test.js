@@ -1,6 +1,7 @@
 // Endpoints y comportamientos que usa el orquestador (liveness, readiness, apagado) y límites de seguridad.
 const { test, describe, before, after, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
+const os = require('node:os');
 const { crearApp } = require('../../src/app');
 const repo = require('../../src/data');
 const { enviarJson } = require('./helpers');
@@ -26,6 +27,7 @@ describe('GET /health', () => {
     const cuerpo = await (await fetch(`${baseUrl}/health`)).json();
     assert.equal(cuerpo.commit, 'local');
     assert.equal(cuerpo.almacenamiento, 'memoria');
+    assert.equal(cuerpo.instancia, os.hostname());
   });
 });
 

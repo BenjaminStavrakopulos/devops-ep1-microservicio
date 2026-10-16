@@ -1,0 +1,9 @@
+# Configuración no sensible de la API (las credenciales van en el Secret "productos-db")
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: productos-api-config
+data:
+  PORT: "3000"
+  DB_POOL_MAX: "5"
+  SHUTDOWN_TIMEOUT_MS: "20000"

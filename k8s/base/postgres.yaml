@@ -1,0 +1,103 @@
+# PostgreSQL como StatefulSet: identidad de red estable y volumen persistente propio.
+# Una sola instancia: alta disponibilidad de la base de datos requeriría un operador (p. ej. CloudNativePG),
+# fuera del alcance de este proyecto. La API, que es la que recibe la carga, sí escala horizontalmente.
+apiVersion: v1
+kind: Service
+metadata:
+  name: productos-db
+  labels:
+    app.kubernetes.io/name: productos-db
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: productos-db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: productos-db
+  labels:
+    app.kubernetes.io/name: productos-db
+    app.kubernetes.io/component: database
+spec:
+  serviceName: productos-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: productos-db
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: productos-db
+        app.kubernetes.io/component: database
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70        # usuario "postgres" de la imagen alpine
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef: { name: productos-db, key: POSTGRES_DB }
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: { name: productos-db, key: POSTGRES_USER }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: productos-db, key: POSTGRES_PASSWORD }
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: datos
+              mountPath: /var/lib/postgresql/data
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: datos
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1Gi
