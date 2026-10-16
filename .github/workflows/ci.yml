@@ -1,6 +1,6 @@
 # Pipeline CI/CD de productos-service
 #
-#   PR -> develop / main : validar commits -> lint + tests -> build imagen + smoke test
+#   PR -> develop / main : validar commits + escaneo de secretos -> lint + tests -> build imagen + smoke test
 #   push -> develop      : lint + tests -> build imagen -> deploy al entorno "staging" simulado
 #   push -> main         : lint + tests -> build imagen -> publicar imagen en GHCR (entorno "production")
 name: CI/CD
@@ -73,9 +73,21 @@ jobs:
       - name: Tests con cobertura
         run: npm run test:coverage
 
+  escaneo-secretos:
+    name: Escaneo de secretos (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # se revisa todo el historial, no solo el último commit
+      - name: Buscar credenciales filtradas en el historial
+        run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.18.4 \
+            detect --source=/repo --redact --verbose --exit-code=1
+
   build-imagen:
     name: Build de imagen Docker y smoke test
-    needs: lint-y-tests
+    needs: [lint-y-tests, escaneo-secretos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

@@ -4,6 +4,15 @@ Todos los cambios relevantes de este proyecto se documentan en este archivo.
 
 El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
+## [1.1.0] - 2026-10-15
+
+### Agregado
+- Escaneo de secretos con gitleaks en el pipeline: revisa todo el historial y bloquea el build si encuentra credenciales (#12).
+
+### Documentación
+- Manejo de credenciales con GitHub Secrets en `docs/CI-CD.md` (#12).
+- Sección de control de versiones y releases en el README (#12).
+
 ## [1.0.2] - 2026-10-15
 
 ### Documentación
@@ -28,6 +37,7 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/
 ### Agregado
 - Versión inicial del microservicio: `GET /health`, `GET /api/productos`, `GET /api/productos/:id` y `POST /api/productos`.
 
+[1.1.0]: https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/compare/616772e...v1.0.0
