@@ -148,7 +148,7 @@ jobs:
       contents: read
       security-events: write   # subir resultados de Trivy a la pestaña Security
     env:
-      TRIVY: aquasec/trivy:0.58.1
+      TRIVY: aquasec/trivy:0.74.0
     steps:
       - uses: actions/checkout@v5
       - name: Construir imagen con metadatos de trazabilidad
