@@ -1,3 +1,4 @@
+const os = require('node:os');
 const express = require('express');
 const helmet = require('helmet');
 const productosRouter = require('./routes/productos');
@@ -19,6 +20,8 @@ function crearApp() {
       servicio: 'productos-service',
       version,
       commit: process.env.GIT_SHA || 'local',
+      // Nombre del pod/contenedor que respondió: permite verificar el balanceo entre réplicas
+      instancia: os.hostname(),
       almacenamiento: repo.tipo,
     });
   });
