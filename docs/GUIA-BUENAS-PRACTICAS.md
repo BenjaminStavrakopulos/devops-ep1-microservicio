@@ -85,6 +85,8 @@ Formato: `<tipo>/<descripcion-corta>`
 | `release/1.1.0` | `release/v1.1` | La versión debe ser SemVer completa sin `v` |
 | `feature/pipeline-ci` | `feature/cambios` | Descripción no informativa |
 
+> **Excepción:** las ramas que crea Dependabot (`dependabot/<ecosistema>/<paquete>`) siguen el formato de esa herramienta. Igual pasan por PR y por todos los controles del pipeline.
+
 ## 3. Mensajes de commit
 
 Se usa la especificación [Conventional Commits 1.0.0](https://www.conventionalcommits.org/es/v1.0.0/). **El pipeline valida el formato en cada pull request** (job `Validar convención de commits`) y falla si algún commit no la cumple.
@@ -195,21 +197,37 @@ git tag -a v1.1.0 -m "Versión 1.1.0" && git push origin v1.1.0
 productos-service/
 ├── .github/
 │   ├── workflows/ci.yml          # Pipeline CI/CD (GitHub Actions)
+│   ├── dependabot.yml            # Actualización y escaneo de dependencias
 │   ├── pull_request_template.md  # Plantilla obligatoria de PR
 │   └── CODEOWNERS                # Revisores por defecto
 ├── docs/                         # Documentación técnica del proyecto
+├── k8s/                          # Orquestación Kubernetes (Kustomize)
+│   ├── base/                     # Recursos comunes
+│   ├── overlays/staging/         # Diferencias de staging
+│   ├── overlays/production/      # Diferencias de production
+│   └── kind-config.yaml          # Clúster local / del pipeline
+├── nginx/nginx.conf              # Balanceador del stack Docker Compose
 ├── scripts/
-│   └── smoke-test.sh             # Pruebas de humo post-despliegue
+│   ├── smoke-test.sh             # Pruebas de humo post-despliegue
+│   ├── desplegar-compose.sh      # Despliegue + escalado con Docker Compose
+│   ├── desplegar-k8s.sh          # Despliegue en Kubernetes con rollback
+│   ├── pruebas-k8s.sh            # Balanceo, rolling update y HPA
+│   └── instalar-herramientas-k8s.sh
 ├── src/
-│   ├── app.js                    # Configuración de Express (middlewares, rutas, errores)
-│   ├── server.js                 # Punto de entrada: levanta el servidor
+│   ├── app.js                    # Configuración de Express (middlewares, rutas, errores, health/ready)
+│   ├── server.js                 # Punto de entrada: arranque con reintentos y apagado ordenado
+│   ├── reintentos.js             # Reintentos con espera exponencial
 │   ├── routes/                   # Definición de endpoints HTTP
-│   ├── data/                     # Acceso a datos (repositorios)
+│   ├── data/                     # Repositorios (memoria y PostgreSQL) y selección por entorno
 │   ├── validators/               # Validación de entradas
 │   └── filtros/                  # Lógica de filtrado y ordenamiento
-├── tests/                        # Pruebas automatizadas (*.test.js)
+├── tests/
+│   ├── unit/                     # Pruebas unitarias (lógica aislada)
+│   └── integration/              # Pruebas de la API por HTTP
 ├── Dockerfile                    # Imagen de producción
-├── docker-compose.yml            # Entorno cloud simulado
+├── docker-compose.yml            # Stack local y prueba e2e
+├── sonar-project.properties      # Configuración de SonarCloud
+├── SECURITY.md                   # Política de seguridad
 ├── CHANGELOG.md                  # Historial de versiones
 └── README.md
 ```
@@ -218,8 +236,9 @@ productos-service/
 
 - Archivos de código en `camelCase.js`; documentación en `MAYUSCULAS.md` o `kebab-case.md`.
 - Cada capa tiene una sola responsabilidad: las rutas no acceden directo a los datos sin pasar por el repositorio, y la validación no vive en las rutas.
-- Las pruebas reflejan el módulo que prueban: `tests/<modulo>.test.js`.
-- La configuración del entorno se toma de variables de entorno (`PORT`), nunca se escribe en el código.
+- Las pruebas reflejan el módulo que prueban: `tests/unit/<modulo>.test.js` o `tests/integration/<recurso>.test.js`.
+- La configuración del entorno se toma de variables de entorno (`PORT`, `DATABASE_URL`), nunca se escribe en el código.
+- Los manifiestos de Kubernetes no se duplican por entorno: las diferencias van en el overlay correspondiente.
 
 ## 8. Protección de ramas
 
@@ -228,10 +247,11 @@ Configuración aplicada en GitHub (*Settings → Branches*):
 | Regla | `main` | `develop` |
 |-------|:------:|:---------:|
 | Requerir pull request antes de mergear | ✅ | ✅ |
-| Requerir que el CI pase (`Lint y tests`, `Build de imagen`) | ✅ | ✅ |
+| Checks obligatorios: lint y tests (Node 22 y 24), build de imagen + Trivy, gitleaks, npm audit, revisión de dependencias, e2e Compose, validación de IaC y SonarCloud | ✅ | ✅ |
 | Requerir rama actualizada antes de mergear | ✅ | — |
+| Requerir conversaciones resueltas | ✅ | ✅ |
 | Bloquear force push y eliminación | ✅ | ✅ |
-| Requerir 1 aprobación *(solo en equipo)* | ✅ | ✅ |
+| Requerir 1 aprobación | En equipo | En equipo |
 
 ## 9. Qué se versiona y qué no
 
