@@ -15,7 +15,7 @@ No abras un issue público. Usa **Security → Report a vulnerability** en este 
 | Dependencias vulnerables | Dependabot alerts + security updates | Alerta en *Security* y PR automático con la corrección |
 | Dependencias desactualizadas | Dependabot version updates (semanal) | PR hacia `develop` |
 | Vulnerabilidades en dependencias npm | `npm audit --audit-level=high` | **Bloquea** el pipeline |
-| Dependencias nuevas en un PR | Dependency Review | **Bloquea** el PR (severidad *high* o licencia GPL/AGPL) |
+| Dependencias nuevas en un PR | Dependency Review | **Bloquea** el PR (severidad *high* o superior) |
 | Vulnerabilidades de la imagen | Trivy | **Bloquea** el despliegue (HIGH/CRITICAL con parche) y publica alertas en *Security → Code scanning* |
 | Calidad y seguridad del código | SonarCloud (Quality Gate) | **Bloquea** el pipeline |
 | Credenciales en el código | gitleaks + GitHub secret scanning + push protection | **Bloquea** el pipeline / rechaza el push |
