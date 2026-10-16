@@ -1,6 +1,6 @@
 {
   "name": "productos-service",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Microservicio REST para la gestión de un catálogo de productos",
   "main": "src/server.js",
   "private": true,
@@ -9,18 +9,25 @@
     "dev": "node --watch src/server.js",
     "test": "node --test",
     "lint": "eslint .",
-    "test:coverage": "node --test --experimental-test-coverage"
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-exclude=\"tests/**\" --test-coverage-lines=90 --test-coverage-branches=85 --test-coverage-functions=90",
+    "test:unit": "node --test \"tests/unit/**/*.test.js\"",
+    "test:integration": "node --test \"tests/integration/**/*.test.js\"",
+    "pretest:ci": "node -e \"require('fs').mkdirSync('coverage',{recursive:true})\"",
+    "test:ci": "node --test --experimental-test-coverage --test-coverage-exclude=\"tests/**\" --test-coverage-lines=90 --test-coverage-branches=85 --test-coverage-functions=90 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=junit --test-reporter-destination=coverage/junit.xml"
   },
   "engines": {
     "node": ">=22"
   },
   "license": "MIT",
   "dependencies": {
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "helmet": "^8.3.0",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
     "eslint": "^9.39.5",
-    "globals": "^17.13.0"
+    "globals": "^17.13.0",
+    "pg-mem": "^3.0.14"
   }
 }

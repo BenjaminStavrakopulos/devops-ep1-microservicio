@@ -2,7 +2,13 @@ node_modules
 coverage
 tests
 docs
+scripts
+nginx
+k8s
 .git
 .github
 *.md
 .env
+.env.*
+docker-compose*.yml
+eslint.config.js

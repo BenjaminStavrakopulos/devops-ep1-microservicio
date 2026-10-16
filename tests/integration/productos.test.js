@@ -1,7 +1,7 @@
 const { test, describe, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const { iniciarServidor, enviarJson } = require('./helpers');
-const repo = require('../src/data/productosRepository');
+const repo = require('../../src/data/productosRepository');
 
 let srv;
 before(async () => { srv = await iniciarServidor(); });

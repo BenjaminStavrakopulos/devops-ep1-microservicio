@@ -1,17 +1,90 @@
-# Entorno "cloud simulado": el pipeline levanta este stack en el runner de GitHub Actions
-# para desplegar la imagen recién construida y validarla con pruebas de humo.
+# Orquestación con Docker Compose: entorno "cloud simulado" de staging.
+#
+#   cliente ──> lb (Nginx, :3000) ──> api x N réplicas ──> db (PostgreSQL)
+#               red "frontend"                   red "backend" (interna, sin salida a internet)
+#
+# Uso local:  cp .env.example .env && docker compose up -d --build --wait
+# Escalar:    docker compose up -d --scale api=5 --no-recreate
+name: productos
+
 services:
-  productos-service:
-    image: ${IMAGE:-productos-service:local}
-    build: .
-    container_name: productos-service
+  db:
+    image: postgres:17-alpine
     environment:
-      - PORT=3000
-    ports:
-      - "3000:3000"
+      POSTGRES_DB: productos
+      POSTGRES_USER: productos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Definir POSTGRES_PASSWORD (ver .env.example)}
+    volumes:
+      - db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      test: ["CMD-SHELL", "pg_isready -U productos -d productos"]
       interval: 5s
       timeout: 3s
       retries: 10
+    networks: [backend]
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512M }
+    security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
+
+  api:
+    image: ${IMAGE:-productos-service:local}
+    build: .
+    environment:
+      DATABASE_URL: postgres://productos:${POSTGRES_PASSWORD}@db:5432/productos
+      DB_POOL_MAX: "5"
+    depends_on:
+      db:
+        condition: service_healthy
+    deploy:
+      replicas: ${API_REPLICAS:-3}
+      resources:
+        limits: { cpus: "0.50", memory: 256M }
+        reservations: { cpus: "0.10", memory: 64M }
+    # Endurecimiento: sistema de archivos de solo lectura, sin capabilities de Linux ni escalada de privilegios
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/ready"]
+      interval: 5s
+      timeout: 3s
+      start_period: 10s
+      retries: 5
+    stop_grace_period: 15s
+    networks: [backend, frontend]
+    restart: unless-stopped
+
+  lb:
+    image: nginxinc/nginx-unprivileged:1.28-alpine
+    ports:
+      - "${LB_PORT:-3000}:8080"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/nginx-health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 64M }
+    networks: [frontend]
+    restart: unless-stopped
+
+networks:
+  frontend:
+  backend:
+    internal: true
+
+volumes:
+  db-data:

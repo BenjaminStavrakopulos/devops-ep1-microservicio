@@ -1,8 +1,9 @@
 # Pipeline CI/CD de productos-service
 #
-#   PR -> develop / main : validar commits + escaneo de secretos -> lint + tests -> build imagen + smoke test
-#   push -> develop      : lint + tests -> build imagen -> deploy al entorno "staging" simulado
-#   push -> main         : lint + tests -> build imagen -> publicar imagen en GHCR (entorno "production")
+#   PR -> develop / main : commits + secretos + dependencias -> lint + tests + SonarCloud -> imagen + Trivy -> e2e Compose
+#   push -> develop      : controles -> imagen + Trivy -> deploy a staging en Kubernetes (kind)
+#   push -> main         : controles -> imagen + Trivy -> publicar en GHCR -> deploy a production en Kubernetes (kind)
+#   Si falla un control de seguridad en develop/main se abre un issue "seguridad" (alerta).
 name: CI/CD
 
 on:
@@ -11,6 +12,11 @@ on:
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
+    inputs:
+      desplegar_staging:
+        description: "Desplegar esta rama en staging (Kubernetes)"
+        type: boolean
+        default: false
 
 # Si llega un push nuevo a la misma rama/PR, se cancela la ejecución anterior
 concurrency:
@@ -70,8 +76,30 @@ jobs:
         run: npm ci
       - name: Lint
         run: npm run lint
-      - name: Tests con cobertura
-        run: npm run test:coverage
+      # Política de calidad: falla si la cobertura baja de 90% líneas / 85% ramas / 90% funciones
+      - name: Tests unitarios e integración con umbral de cobertura
+        shell: bash   # activa pipefail para que "tee" no oculte un fallo de las pruebas
+        run: npm run test:ci 2>&1 | tee test-output.txt
+      - name: Resumen de pruebas
+        if: always()
+        run: |
+          {
+            echo "## Pruebas (Node ${{ matrix.node }})"
+            echo '```'
+            grep -E '^ℹ (tests|suites|pass|fail|cancelled|skipped|duration_ms)' test-output.txt || true
+            echo '```'
+            echo "### Cobertura"
+            echo '```'
+            sed -n '/start of coverage report/,/end of coverage report/p' test-output.txt | sed 's/^ℹ //' || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Guardar reportes de cobertura y JUnit
+        if: always() && matrix.node == 22
+        uses: actions/upload-artifact@v4
+        with:
+          name: reportes-pruebas
+          path: coverage/
+          retention-days: 7
 
   escaneo-secretos:
     name: Escaneo de secretos (gitleaks)
@@ -85,16 +113,144 @@ jobs:
           docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.18.4 \
             detect --source=/repo --redact --verbose --exit-code=1
 
-  build-imagen:
-    name: Build de imagen Docker y smoke test
-    needs: [lint-y-tests, escaneo-secretos]
+  analisis-sonarcloud:
+    name: Análisis de código (SonarCloud)
+    needs: lint-y-tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Construir imagen
-        run: docker build -t $IMAGE_NAME:${{ github.sha }} .
-      - name: Levantar contenedor
-        run: docker run -d --name smoke -p 3000:3000 $IMAGE_NAME:${{ github.sha }}
+        with:
+          fetch-depth: 0   # historial completo para detectar código nuevo y autoría de los hallazgos
+      - name: Descargar reporte de cobertura
+        uses: actions/download-artifact@v4
+        with:
+          name: reportes-pruebas
+          path: coverage
+      # Análisis estático (bugs, vulnerabilidades, security hotspots, code smells, duplicación, cobertura).
+      # Bloqueo: falla si el proyecto no aprueba el Quality Gate (sonar.qualitygate.wait=true)
+      - name: Análisis y Quality Gate
+        uses: SonarSource/sonarqube-scan-action@v8.2.2
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      - name: Enlace al reporte
+        if: always()
+        run: |
+          echo "## SonarCloud" >> "$GITHUB_STEP_SUMMARY"
+          echo "Reporte: https://sonarcloud.io/summary/new_code?id=BenjaminStavrakopulos_devops-ep1-microservicio" >> "$GITHUB_STEP_SUMMARY"
+
+  auditoria-dependencias:
+    name: Auditoría de dependencias (npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      # Bloqueo: falla si alguna dependencia tiene vulnerabilidades altas o críticas conocidas
+      - name: Vulnerabilidades conocidas (umbral high)
+        run: npm audit --audit-level=high
+      - name: Verificar firmas de los paquetes del registro
+        run: npm audit signatures
+
+  revision-dependencias:
+    name: Revisión de dependencias del PR
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+      # Bloquea el PR si agrega dependencias con vulnerabilidades altas
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+
+  validar-manifiestos:
+    name: Validación de manifiestos e IaC
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Instalar kustomize y kubeconform
+        run: bash scripts/instalar-herramientas-k8s.sh
+      - name: Renderizar overlays de Kubernetes
+        run: |
+          mkdir -p render
+          for entorno in staging production; do
+            kustomize build "k8s/overlays/$entorno" > "render/$entorno.yaml"
+          done
+          cp Dockerfile render/
+      - name: Validar contra el esquema de la API de Kubernetes
+        run: kubeconform -strict -summary render/staging.yaml render/production.yaml
+      # Bloqueo: configuraciones inseguras HIGH/CRITICAL en manifiestos o Dockerfile (privilegios, root, etc.)
+      - name: Analizar configuración de seguridad (Trivy config)
+        run: |
+          docker run --rm -v "$PWD/render:/iac" aquasec/trivy:0.74.0 \
+            config --severity HIGH,CRITICAL --exit-code 1 /iac
+
+  build-imagen:
+    name: Build de imagen Docker y smoke test
+    needs: [lint-y-tests, analisis-sonarcloud, escaneo-secretos, auditoria-dependencias]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # subir resultados de Trivy a la pestaña Security
+    env:
+      TRIVY: aquasec/trivy:0.74.0
+    steps:
+      - uses: actions/checkout@v5
+      - name: Construir imagen con metadatos de trazabilidad
+        run: |
+          docker build \
+            --build-arg VERSION="$(jq -r .version package.json)" \
+            --build-arg GIT_SHA="${{ github.sha }}" \
+            --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -t $IMAGE_NAME:${{ github.sha }} .
+      - name: Información de la imagen
+        run: |
+          {
+            echo "## Imagen construida"
+            echo "| Dato | Valor |"
+            echo "|---|---|"
+            echo "| Tag | \`$IMAGE_NAME:${GITHUB_SHA::7}\` |"
+            echo "| Tamaño | $(docker image inspect $IMAGE_NAME:${{ github.sha }} --format '{{.Size}}' | numfmt --to=iec) |"
+            echo "| Usuario | $(docker image inspect $IMAGE_NAME:${{ github.sha }} --format '{{.Config.User}}') |"
+            echo "| Versión (label OCI) | $(docker image inspect $IMAGE_NAME:${{ github.sha }} --format '{{index .Config.Labels "org.opencontainers.image.version"}}') |"
+            echo "| Commit (label OCI) | $(docker image inspect $IMAGE_NAME:${{ github.sha }} --format '{{index .Config.Labels "org.opencontainers.image.revision"}}') |"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Escaneo de vulnerabilidades de la imagen (Trivy, reporte SARIF)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/" -v "$PWD:/out" $TRIVY \
+            image --format sarif --output /out/trivy.sarif $IMAGE_NAME:${{ github.sha }}
+      - name: Publicar hallazgos en GitHub Security (alertas)
+        if: always() && hashFiles('trivy.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy.sarif
+          category: trivy-imagen
+      # Bloqueo: si la imagen tiene vulnerabilidades HIGH/CRITICAL con parche disponible, no se despliega
+      - name: Bloquear si hay vulnerabilidades altas o críticas
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/" $TRIVY \
+            image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 $IMAGE_NAME:${{ github.sha }}
+      - name: Generar SBOM (CycloneDX)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/" -v "$PWD:/out" $TRIVY \
+            image --format cyclonedx --output /out/sbom.cdx.json $IMAGE_NAME:${{ github.sha }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-imagen
+          path: sbom.cdx.json
+          retention-days: 30
+      - name: Levantar contenedor endurecido
+        run: |
+          docker run -d --name smoke -p 3000:3000 \
+            --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges \
+            --memory 256m --cpus 0.5 \
+            $IMAGE_NAME:${{ github.sha }}
       - name: Pruebas de humo
         run: bash scripts/smoke-test.sh http://localhost:3000
       - name: Logs del contenedor
@@ -108,14 +264,13 @@ jobs:
           path: imagen.tar.gz
           retention-days: 3
 
-  deploy-staging:
-    name: Deploy a staging (cloud simulado)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+  e2e-compose:
+    name: Prueba e2e de la orquestación (Docker Compose)
+    if: github.event_name == 'pull_request'
     needs: build-imagen
     runs-on: ubuntu-latest
-    environment:
-      name: staging
-      url: http://localhost:3000
+    env:
+      IMAGE: productos-service:${{ github.sha }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
@@ -123,63 +278,221 @@ jobs:
           name: imagen-docker
       - name: Cargar imagen construida
         run: gunzip -c imagen.tar.gz | docker load
-      - name: Desplegar con Docker Compose
-        env:
-          IMAGE: ${{ env.IMAGE_NAME }}:${{ github.sha }}
-        run: docker compose up -d --no-build --wait
-      - name: Verificar despliegue
-        run: bash scripts/smoke-test.sh http://localhost:3000
-      - name: Resumen del despliegue
+      - name: Generar credenciales efímeras de la base de datos
         run: |
-          {
-            echo "## Deploy a staging exitoso"
-            echo "| Dato | Valor |"
-            echo "|---|---|"
-            echo "| Commit | \`${GITHUB_SHA::7}\` |"
-            echo "| Imagen | \`$IMAGE_NAME:${GITHUB_SHA::7}\` |"
-            echo "| Versión | $(curl -s http://localhost:3000/health | jq -r .version) |"
-          } >> "$GITHUB_STEP_SUMMARY"
+          PASSWORD="$(openssl rand -hex 24)"
+          echo "::add-mask::$PASSWORD"
+          echo "POSTGRES_PASSWORD=$PASSWORD" >> "$GITHUB_ENV"
+      - name: Desplegar, probar y escalar el stack
+        run: bash scripts/desplegar-compose.sh
+      - name: Logs en caso de fallo
+        if: failure()
+        run: docker compose logs --tail 100
       - name: Bajar entorno
         if: always()
-        run: docker compose down
+        run: docker compose down -v
+
+  deploy-staging:
+    name: Deploy a staging (Kubernetes)
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/develop') || inputs.desplegar_staging
+    needs: [build-imagen, validar-manifiestos]
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    env:
+      IMAGE: productos-service:${{ github.sha }}
+      OVERLAY: staging
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: imagen-docker
+      - name: Cargar imagen construida
+        run: gunzip -c imagen.tar.gz | docker load
+      - name: Crear clúster Kubernetes (kind, 3 nodos)
+        uses: helm/kind-action@v1.15.0
+        with:
+          cluster_name: productos
+          config: k8s/kind-config.yaml
+      - name: Instalar kustomize y metrics-server
+        run: |
+          bash scripts/instalar-herramientas-k8s.sh
+          kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.8.1/components.yaml
+          # En kind los kubelets usan certificados autofirmados
+          kubectl -n kube-system patch deployment metrics-server --type=json \
+            -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+          kubectl -n kube-system rollout status deployment/metrics-server --timeout=180s
+      - name: Cargar la imagen en los nodos del clúster
+        run: kind load docker-image "$IMAGE" --name productos
+      - name: Desplegar (rollout + smoke test, rollback automático si falla)
+        env:
+          CHANGE_CAUSE: "v${{ github.run_number }} commit ${{ github.sha }}"
+        run: bash scripts/desplegar-k8s.sh
+      - name: Pruebas de orquestación (balanceo, rolling update sin caída, HPA)
+        run: bash scripts/pruebas-k8s.sh
+      - name: Resumen del despliegue
+        if: always()
+        run: |
+          {
+            echo "## Estado del clúster (staging)"
+            echo '```'
+            kubectl get nodes -o wide
+            echo
+            kubectl -n productos-staging get deploy,sts,pods,svc,hpa,pdb,networkpolicy -o wide
+            echo
+            kubectl -n productos-staging rollout history deployment/productos-api
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Guardar manifiesto aplicado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifiesto-staging
+          path: manifiesto-staging.yaml
+          retention-days: 30
+      - name: Diagnóstico en caso de fallo
+        if: failure()
+        run: |
+          kubectl -n productos-staging get events --sort-by=.lastTimestamp | tail -40
+          kubectl -n productos-staging describe pods | tail -80
+          kubectl -n productos-staging logs -l app.kubernetes.io/part-of=productos --tail 50 --prefix
 
   publicar-imagen:
     name: Publicar imagen en GHCR (production)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: build-imagen
+    needs: [build-imagen, validar-manifiestos]
     runs-on: ubuntu-latest
-    environment: production
     permissions:
       contents: read
       packages: write
+    outputs:
+      imagen: ${{ steps.publicar.outputs.digest }}
     steps:
       - uses: actions/checkout@v5
-      - name: Leer versión del package.json
-        id: version
-        run: echo "valor=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/download-artifact@v4
+        with:
+          name: imagen-docker
+      # Build once, deploy many: se publica exactamente la imagen que pasó las pruebas, sin reconstruirla
+      - name: Cargar imagen probada
+        run: gunzip -c imagen.tar.gz | docker load
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Metadatos de la imagen
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest
-            type=raw,value=${{ steps.version.outputs.valor }}
-            type=sha
-      - name: Construir y publicar
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-      - name: Resumen
+      - name: Etiquetar y publicar
+        id: publicar
         run: |
-          echo "## Imagen publicada en GitHub Container Registry" >> "$GITHUB_STEP_SUMMARY"
-          echo '${{ steps.meta.outputs.tags }}' | sed 's/^/- `/; s/$/`/' >> "$GITHUB_STEP_SUMMARY"
+          REPO="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$IMAGE_NAME"
+          VERSION="$(jq -r .version package.json)"
+          for TAG in "$VERSION" "sha-${GITHUB_SHA::7}" latest; do
+            docker tag "$IMAGE_NAME:$GITHUB_SHA" "$REPO:$TAG"
+            docker push "$REPO:$TAG"
+          done
+          DIGEST="$(docker image inspect "$REPO:$VERSION" --format '{{index .RepoDigests 0}}')"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Imagen publicada en GitHub Container Registry"
+            echo "- \`$REPO:$VERSION\`"
+            echo "- \`$REPO:sha-${GITHUB_SHA::7}\`"
+            echo "- \`$REPO:latest\`"
+            echo ""
+            echo "Digest: \`$DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-production:
+    name: Deploy a production (Kubernetes)
+    needs: publicar-imagen
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    permissions:
+      contents: read
+      packages: read
+    env:
+      # Se despliega por digest: la referencia es inmutable y apunta exactamente a la imagen probada
+      IMAGE: ${{ needs.publicar-imagen.outputs.imagen }}
+      OVERLAY: production
+    steps:
+      - uses: actions/checkout@v5
+      - name: Crear clúster Kubernetes (kind, 3 nodos)
+        uses: helm/kind-action@v1.15.0
+        with:
+          cluster_name: productos
+          config: k8s/kind-config.yaml
+      - name: Instalar kustomize y metrics-server
+        run: |
+          bash scripts/instalar-herramientas-k8s.sh
+          kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.8.1/components.yaml
+          kubectl -n kube-system patch deployment metrics-server --type=json \
+            -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+          kubectl -n kube-system rollout status deployment/metrics-server --timeout=180s
+      - name: Desplegar desde GHCR (rollout + smoke test, rollback automático si falla)
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHANGE_CAUSE: "v${{ github.run_number }} commit ${{ github.sha }}"
+        run: bash scripts/desplegar-k8s.sh
+      - name: Pruebas de orquestación (balanceo, rolling update sin caída, HPA)
+        run: bash scripts/pruebas-k8s.sh
+      - name: Resumen del despliegue
+        if: always()
+        run: |
+          {
+            echo "## Estado del clúster (production)"
+            echo "Imagen desplegada: \`$IMAGE\`"
+            echo '```'
+            kubectl -n productos-production get deploy,sts,pods,svc,hpa,pdb,networkpolicy -o wide
+            echo
+            kubectl -n productos-production rollout history deployment/productos-api
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Guardar manifiesto aplicado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifiesto-production
+          path: manifiesto-production.yaml
+          retention-days: 90
+      - name: Diagnóstico en caso de fallo
+        if: failure()
+        run: |
+          kubectl -n productos-production get events --sort-by=.lastTimestamp | tail -40
+          kubectl -n productos-production describe pods | tail -80
+          kubectl -n productos-production logs -l app.kubernetes.io/part-of=productos --tail 50 --prefix
+
+  alerta-seguridad:
+    name: Alerta de seguridad
+    # Alerta: si un control de seguridad falla en develop o main, se abre (o actualiza) un issue etiquetado "seguridad".
+    # En los PRs el aviso es el propio check en rojo, que bloquea el merge (protección de ramas).
+    if: failure() && github.event_name == 'push'
+    needs: [analisis-sonarcloud, escaneo-secretos, auditoria-dependencias, validar-manifiestos, build-imagen]
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Crear o actualizar issue de seguridad
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RESULTADOS: |
+            | Control | Resultado |
+            |---|---|
+            | Análisis de código (SonarCloud Quality Gate) | ${{ needs.analisis-sonarcloud.result }} |
+            | Escaneo de secretos (gitleaks) | ${{ needs.escaneo-secretos.result }} |
+            | Auditoría de dependencias (npm audit) | ${{ needs.auditoria-dependencias.result }} |
+            | Manifiestos e IaC (kubeconform + Trivy config) | ${{ needs.validar-manifiestos.result }} |
+            | Build de imagen + Trivy | ${{ needs.build-imagen.result }} |
+        run: |
+          TITULO="Fallo de controles de seguridad en ${GITHUB_REF_NAME}"
+          URL_RUN="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          CUERPO=$(printf 'El pipeline detectó un problema de seguridad y **bloqueó el despliegue**.\n\n- Rama: `%s`\n- Commit: `%s`\n- Ejecución: %s\n\n%s\n\nRevisar los logs y la pestaña *Security* del repositorio.' \
+            "$GITHUB_REF_NAME" "${GITHUB_SHA::7}" "$URL_RUN" "$RESULTADOS")
+          EXISTENTE=$(gh issue list --label seguridad --state open --search "in:title \"$TITULO\"" --json number --jq '.[0].number')
+          if [[ -n "$EXISTENTE" ]]; then
+            gh issue comment "$EXISTENTE" --body "$CUERPO"
+          else
+            gh issue create --title "$TITULO" --label seguridad --body "$CUERPO"
+          fi

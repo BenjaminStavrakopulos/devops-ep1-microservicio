@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Recursos comunes a todos los entornos. Los overlays (staging / production) ajustan réplicas, límites y escalado.
+# El Secret "productos-db" NO está en el repositorio: lo crea el pipeline con una contraseña aleatoria en cada despliegue.
+resources:
+  - serviceaccount.yaml
+  - configmap.yaml
+  - postgres.yaml
+  - api-deployment.yaml
+  - api-service.yaml
+  - api-hpa.yaml
+  - api-pdb.yaml
+  - networkpolicy.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: productos
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false
+
+images:
+  - name: productos-service
+    newName: productos-service
+    newTag: local

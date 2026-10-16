@@ -1,4 +1,4 @@
-const { crearApp } = require('../src/app');
+const { crearApp } = require('../../src/app');
 
 // Levanta la app en un puerto aleatorio y devuelve la URL base y una función para cerrarla.
 function iniciarServidor() {
