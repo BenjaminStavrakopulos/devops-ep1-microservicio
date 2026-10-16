@@ -1,0 +1,43 @@
+# Segmentación de red (mínimo privilegio):
+#  1. Por defecto se bloquea todo el tráfico entrante a los pods del namespace.
+#  2. La API acepta tráfico HTTP en el puerto 3000.
+#  3. PostgreSQL solo acepta conexiones desde los pods de la API.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: denegar-todo-ingreso
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: permitir-http-api
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: productos-api
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - port: 3000
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: permitir-db-desde-api
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: productos-db
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: productos-api
+      ports:
+        - port: 5432
+          protocol: TCP
