@@ -13,6 +13,7 @@ Microservicio REST para la gestión de un catálogo de productos, construido con
 - [API](#api)
 - [Estrategia de ramificación](#estrategia-de-ramificación)
 - [Pipeline CI/CD](#pipeline-cicd)
+- [Control de versiones y releases](#control-de-versiones-y-releases)
 - [Convenciones del repositorio](#convenciones-del-repositorio)
 - [Documentación](#documentación)
 - [Declaración de uso de IA](#declaración-de-uso-de-inteligencia-artificial)
@@ -125,7 +126,12 @@ gitGraph
 
 > ✍️ **Sección pendiente: la redacta el estudiante.** La pauta de la evaluación prohíbe usar IA para escribir justificaciones técnicas.
 >
-> Preguntas guía: ¿por qué GitFlow y no trunk-based o GitHub Flow para este microservicio? ¿Qué te aportan `develop` y `staging` como entorno intermedio? ¿Qué pasó con el bug que se corrigió en el hotfix y por qué no hubo que esperar a la siguiente versión? ¿En qué escenario cambiarías de modelo?
+> La justificación tiene que **contrastar GitFlow con las alternativas** de la tabla anterior, no solo describirlo. Preguntas guía:
+> - **Frente a GitHub Flow:** ¿qué te aporta tener `develop` + *staging* antes de producción, en vez de desplegar cada PR directo desde `main`?
+> - **Frente a trunk-based:** ¿qué requisitos de trunk-based (feature flags, cobertura de tests, integrar varias veces al día) no se cumplen en este proyecto?
+> - **Frente a GitLab Flow:** ¿por qué ramas por tipo de trabajo y no ramas por entorno?
+> - **Evidencia propia:** ¿cómo te sirvieron `release/*` y el hotfix v1.0.1 (bug corregido en producción sin arrastrar trabajo de `develop`)?
+> - **Límites:** ¿qué costo tiene GitFlow aquí y en qué escenario cambiarías de modelo?
 
 ## Pipeline CI/CD
 
@@ -134,12 +140,35 @@ El workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) se ejecuta **
 | Job | Cuándo | Qué hace |
 |-----|--------|----------|
 | Validar convención de commits | PR | Verifica que todos los commits cumplan Conventional Commits |
+| Escaneo de secretos (gitleaks) | Siempre | Revisa todo el historial buscando credenciales filtradas; si encuentra alguna, bloquea el build |
 | Lint y tests (Node 22 y 24) | Siempre | `npm ci`, ESLint y pruebas con cobertura |
 | Build de imagen Docker y smoke test | Siempre | Construye la imagen, la ejecuta y prueba los endpoints por HTTP |
 | Deploy a staging | Push a `develop` | Despliega la imagen con Docker Compose en el runner (cloud simulado) y valida con pruebas de humo |
 | Publicar imagen en GHCR | Push a `main` | Publica `ghcr.io/benjaminstavrakopulos/productos-service` con las etiquetas versión, `latest` y SHA |
 
 La explicación detallada del rol de cada etapa dentro del proceso CI/CD está en [docs/CI-CD.md](docs/CI-CD.md).
+
+### Credenciales y GitHub Secrets
+
+El pipeline no tiene ninguna credencial escrita en el código. Para publicar en GHCR usa `secrets.GITHUB_TOKEN`, un token efímero que GitHub genera en cada ejecución, con permisos mínimos: `contents: read` global y `packages: write` solo en el job de publicación. Los despliegues usan los *environments* `staging` y `production`, que admiten secretos y reglas de aprobación propios. Más detalle en [docs/CI-CD.md](docs/CI-CD.md#manejo-de-credenciales-con-github-secrets).
+
+## Control de versiones y releases
+
+El proyecto usa **Versionado Semántico** (`MAJOR.MINOR.PATCH`). Cada integración a `main` se publica con un **tag anotado**, un **GitHub Release** y una entrada en el [CHANGELOG](CHANGELOG.md). La versión también aparece en `GET /health` y en la etiqueta de la imagen Docker.
+
+| Versión | Tipo | Llegó a `main` por | Contenido |
+|---------|------|--------------------|-----------|
+| [v1.0.0](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.0) | MAJOR (primera versión estable) | `release/1.0.0` ([#5](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/5)) | CRUD, filtros, pipeline CI/CD, documentación |
+| [v1.0.1](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.1) | PATCH | `hotfix/eliminar-producto-inexistente` ([#7](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/7)) | Corrección: `DELETE` de un id inexistente borraba el último producto |
+| [v1.0.2](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/releases/tag/v1.0.2) | PATCH | `release/1.0.2` ([#10](https://github.com/BenjaminStavrakopulos/devops-ep1-microservicio/pull/10)) | Documentación de trazabilidad |
+
+```bash
+git tag -l -n1                 # tags con su mensaje
+gh release list                # releases publicados
+git log v1.0.0..v1.0.1 --oneline   # qué cambió entre dos versiones
+```
+
+El proceso para crear una release está en la [guía de buenas prácticas](docs/GUIA-BUENAS-PRACTICAS.md#6-control-de-versiones-y-releases). Todas las ramas `release/*` y `hotfix/*` usadas se conservan en el repositorio como evidencia.
 
 ## Convenciones del repositorio
 
