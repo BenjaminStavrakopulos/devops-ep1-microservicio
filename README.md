@@ -537,7 +537,13 @@ También me sirvió ver cómo los controles de seguridad actúan de verdad. Un P
 
 #### Reflexión de Benjamín Stavrakopulos
 
-> *(Escribe aquí tu reflexión personal, sin apoyo de IA.)*
+En esta segunda evaluación pude profundizar bastante más en lo que significa trabajar con DevOps, ya que pasamos de tener un pipeline relativamente sencillo a implementar un flujo mucho más completo, donde se integran pruebas automatizadas, análisis de seguridad, contenedores y despliegues con Kubernetes.
+
+Una de las cosas que más me sirvió fue trabajar con Docker y Kubernetes, porque pude entender mejor cómo funciona una aplicación cuando necesita ejecutarse en diferentes entornos y soportar varias instancias al mismo tiempo. También aprendí la importancia de utilizar una base de datos externa, como PostgreSQL, en lugar de depender únicamente de la memoria de la aplicación, especialmente cuando se trabaja con múltiples réplicas.
+
+Otro aspecto que considero importante fue implementar controles de seguridad dentro del pipeline. Al principio podía parecer que eran pasos adicionales, pero al ver cómo una dependencia vulnerable podía bloquear automáticamente un Pull Request, entendí que estas herramientas cumplen un papel fundamental para evitar que errores o problemas de seguridad lleguen a producción.
+
+En general, este trabajo me permitió llevar a la práctica muchos de los conceptos vistos en clases y entender cómo se relacionan entre sí dentro de un proyecto real. Creo que uno de los mayores aprendizajes fue darme cuenta de que DevOps no consiste solamente en automatizar despliegues, sino también en mantener un proceso de desarrollo ordenado, seguro y confiable. Sin duda, hay aspectos que todavía puedo seguir mejorando, pero siento que esta experiencia me entregó una base mucho más sólida para enfrentar proyectos de este tipo en el futuro.
 
 ## Autores
 
